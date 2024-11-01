@@ -5,7 +5,7 @@
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
-#include <emmintrin.h>
+/*#include <emmintrin.h>*/
 #include <errno.h>
 #include <fcntl.h>
 #include <libaio.h>

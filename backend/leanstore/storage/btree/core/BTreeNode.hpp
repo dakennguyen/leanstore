@@ -7,7 +7,7 @@
 #include "leanstore/sync-primitives/PageGuard.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
-#include <immintrin.h>
+/*#include <immintrin.h>*/
 #include <algorithm>
 #include <cassert>
 #include <cstring>
