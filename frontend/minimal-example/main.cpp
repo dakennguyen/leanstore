@@ -44,31 +44,31 @@ int main(int argc, char** argv)
    db.startProfilingThread();
    for(u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       crm.scheduleJobSync(t_i, [&, t_i]() { // Usually we want async for parallelism
-         Key key = t_i;
+         Key key = t_i / 2;
          Payload payload;
          utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(Payload));
-         cr::Worker::my().startTX(TX_MODE::OLTP, isolation_level);
-         table.insert({key}, {payload});
-         cr::Worker::my().commitTX();
-         cout << "Inserted: (" << key << ", " << payload << ")" << endl;
-
-         cr::Worker::my().startTX(TX_MODE::OLTP, isolation_level);
-         table.lookup1({key}, [&](const KVTable& res) {
-            cout << "Lookup(" << key << "): returned "<< res.my_payload << endl;
-         });
-         cr::Worker::my().commitTX();
-
-         // If we know that is read-only, then we can set TX_MODE::OLTP
-         cout << "Scanning table..." << endl;
-         cr::Worker::my().startTX(TX_MODE::OLTP, isolation_level);
-         table.scan(
-             {0},
-             [&](const KVTable::Key& key, const KVTable& res) {
-                cout << "(" << key.my_key << ", " << res.my_payload << ")" << endl;
-                return true;
-             }, [&]() {});
-         cr::Worker::my().commitTX();
-         // Check LeanStoreAdapter.hpp for the remaining commands (erase, update1)
+         if (t_i % 2 == 0) {
+            cr::Worker::my().startTX(TX_MODE::OLTP, isolation_level);
+            table.insert({key}, {payload});
+            cr::Worker::my().commitTX();
+            cout << "Inserted: (" << key << ", " << payload << ")" << endl;
+         } else if (t_i % 2 == 1) {
+            cr::Worker::my().startTX(TX_MODE::OLTP, isolation_level);
+            table.lookup1({key}, [&](const KVTable& res) {
+               cout << "Lookup(" << key << "): returned "<< res.my_payload << endl;
+            });
+            cr::Worker::my().commitTX();
+            // If we know that is read-only, then we can set TX_MODE::OLTP
+            cout << "Scanning table..." << endl;
+            cr::Worker::my().startTX(TX_MODE::OLTP, isolation_level);
+            table.scan(
+                {0},
+                [&](const KVTable::Key& key, const KVTable& res) {
+                   cout << "(" << key.my_key << ", " << res.my_payload << ")" << endl;
+                   return true;
+                }, [&]() {});
+            cr::Worker::my().commitTX();
+         }
       });
    }
    crm.joinAll(); // Not really needed here because of Sync.
