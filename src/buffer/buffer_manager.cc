@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <cassert>
 #include <cerrno>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <stdexcept>
@@ -133,6 +134,11 @@ BufferManager::~BufferManager() {
 void BufferManager::Construction() {
   assert(virtual_size_ >= physical_size_);
   blockfd_ = open(FLAGS_db_path.c_str(), O_RDWR | O_DIRECT, S_IRWXU);
+  if (blockfd_ == -1) {
+    perror("open failed");
+    exit(EXIT_FAILURE);
+  }
+
   Ensure(blockfd_ > 0);
 
   /**
@@ -158,6 +164,7 @@ void BufferManager::Construction() {
   // exmap allocation
   exmapfd_ = open(FLAGS_exmap_path.c_str(), O_RDWR);
   if (exmapfd_ < 0) {
+    perror("open failed2");
     throw leanstore::ex::GenericException("Open exmap file-descriptor error. Did you load the module?");
   }
 
@@ -174,7 +181,10 @@ void BufferManager::Construction() {
    */
   buffer.flags = (FLAGS_worker_pin_thread) ? exmap_flags::EXMAP_CPU_AFFINITY : 0;
   auto ret     = ioctl(exmapfd_, EXMAP_IOCTL_SETUP, &buffer);
-  if (ret < 0) { throw leanstore::ex::GenericException("ioctl: exmap_setup error"); }
+  if (ret < 0) {
+    perror("open failed3");
+    throw leanstore::ex::GenericException("ioctl: exmap_setup error");
+  }
 
   exmap_interface_.resize(no_interfaces);
   for (size_t idx = 0; idx < no_interfaces; idx++) {
