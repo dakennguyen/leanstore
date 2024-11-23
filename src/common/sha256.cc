@@ -132,59 +132,6 @@ void SHA256H::ProcessMsgBlock(const unsigned char *msg) {
 
   __m128i state1 = h0145;  // a:b:e:f
   __m128i state2 = h2367;  // c:d:g:h
-  __m128i tmp;
-
-  /* w0 - w3 */
-#define SHA256_ROUNDS_4(cwN, n)                                                                          \
-  tmp    = _mm_add_epi32(cwN, K.x[n]);                 /* w3+K3 : w2+K2 : w1+K1 : w0+K0 */               \
-  state2 = _mm_sha256rnds2_epu32(state2, state1, tmp); /* state2 = a':b':e':f' / state1 = c':d':g':h' */ \
-  tmp    = _mm_unpackhi_epi64(tmp, tmp);               /* - : - : w3+K3 : w2+K2 */                       \
-  state1 = _mm_sha256rnds2_epu32(state1, state2, tmp); /* state1 = a':b':e':f' / state2 = c':d':g':h' */
-
-  /* w0 - w3 */
-  SHA256_ROUNDS_4(cw0, 0);
-  /* w4 - w7 */
-  SHA256_ROUNDS_4(cw1, 1);
-  /* w8 - w11 */
-  SHA256_ROUNDS_4(cw2, 2);
-  /* w12 - w15 */
-  SHA256_ROUNDS_4(cw3, 3);
-  /* w16 - w19 */
-  CYCLE_W(cw0, cw1, cw2, cw3); /* cw0 = w19 : w18 : w17 : w16 */
-  SHA256_ROUNDS_4(cw0, 4);
-  /* w20 - w23 */
-  CYCLE_W(cw1, cw2, cw3, cw0); /* cw1 = w23 : w22 : w21 : w20 */
-  SHA256_ROUNDS_4(cw1, 5);
-  /* w24 - w27 */
-  CYCLE_W(cw2, cw3, cw0, cw1); /* cw2 = w27 : w26 : w25 : w24 */
-  SHA256_ROUNDS_4(cw2, 6);
-  /* w28 - w31 */
-  CYCLE_W(cw3, cw0, cw1, cw2); /* cw3 = w31 : w30 : w29 : w28 */
-  SHA256_ROUNDS_4(cw3, 7);
-  /* w32 - w35 */
-  CYCLE_W(cw0, cw1, cw2, cw3); /* cw0 = w35 : w34 : w33 : w32 */
-  SHA256_ROUNDS_4(cw0, 8);
-  /* w36 - w39 */
-  CYCLE_W(cw1, cw2, cw3, cw0); /* cw1 = w39 : w38 : w37 : w36 */
-  SHA256_ROUNDS_4(cw1, 9);
-  /* w40 - w43 */
-  CYCLE_W(cw2, cw3, cw0, cw1); /* cw2 = w43 : w42 : w41 : w40 */
-  SHA256_ROUNDS_4(cw2, 10);
-  /* w44 - w47 */
-  CYCLE_W(cw3, cw0, cw1, cw2); /* cw3 = w47 : w46 : w45 : w44 */
-  SHA256_ROUNDS_4(cw3, 11);
-  /* w48 - w51 */
-  CYCLE_W(cw0, cw1, cw2, cw3); /* cw0 = w51 : w50 : w49 : w48 */
-  SHA256_ROUNDS_4(cw0, 12);
-  /* w52 - w55 */
-  CYCLE_W(cw1, cw2, cw3, cw0); /* cw1 = w55 : w54 : w53 : w52 */
-  SHA256_ROUNDS_4(cw1, 13);
-  /* w56 - w59 */
-  CYCLE_W(cw2, cw3, cw0, cw1); /* cw2 = w59 : w58 : w57 : w56 */
-  SHA256_ROUNDS_4(cw2, 14);
-  /* w60 - w63 */
-  CYCLE_W(cw3, cw0, cw1, cw2); /* cw3 = w63 : w62 : w61 : w60 */
-  SHA256_ROUNDS_4(cw3, 15);
 
   // Add to the intermediate hash
   h0145 = _mm_add_epi32(state1, h0145);
