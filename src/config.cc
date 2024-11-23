@@ -5,7 +5,7 @@
 // -----------------------------------------------------------------------------------
 /* System in general */
 DEFINE_string(db_path, "/dev/database/main", "Default database path");
-DEFINE_string(exmap_path, "/dev/exmap", "Default Exmap path");
+DEFINE_string(exmap_path, "/dev/exmap0", "Default Exmap path");
 DEFINE_uint32(worker_count, 16, "The number of workers");
 DEFINE_uint32(page_provider_thread, 0, "Number of page provider threads");
 DEFINE_bool(worker_pin_thread, false, "Pin worker to a specific thread");

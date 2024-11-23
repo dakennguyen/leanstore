@@ -106,7 +106,7 @@ int main(int argc, char **argv) {
   FLAGS_worker_count   = 1;
   FLAGS_bm_virtual_gb  = 128;
   FLAGS_bm_physical_gb = 32;
-  FLAGS_db_path        = "/dev/nvme1n1";
+  FLAGS_db_path        = "/dev/nullb0";
   auto db              = std::make_unique<leanstore::LeanStore>();
   auto fs              = LeanStoreFUSE(db.get());
   LeanStoreFUSE::obj   = &fs;

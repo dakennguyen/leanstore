@@ -126,9 +126,7 @@ void SHA256H::ProcessMsgBlock(const unsigned char *msg) {
 //  CW3 = w[t-1] : w[t-2] : w[t-3] : w[t-4]
 //  CW0 = w[t+3] : w[t+2] : w[t+1] : w[t]
 #define CYCLE_W(CW0, CW1, CW2, CW3)                                                            \
-  CW0 = _mm_sha256msg1_epu32(CW0, CW1);                                                        \
-  CW0 = _mm_add_epi32(CW0, _mm_alignr_epi8(CW3, CW2, 4)); /* add w[t-4]:w[t-5]:w[t-6]:w[t-7]*/ \
-  CW0 = _mm_sha256msg2_epu32(CW0, CW3);
+  CW0 = _mm_add_epi32(CW0, _mm_alignr_epi8(CW3, CW2, 4)); /* add w[t-4]:w[t-5]:w[t-6]:w[t-7]*/
 
   __m128i state1 = h0145;  // a:b:e:f
   __m128i state2 = h2367;  // c:d:g:h
@@ -137,9 +135,7 @@ void SHA256H::ProcessMsgBlock(const unsigned char *msg) {
   /* w0 - w3 */
 #define SHA256_ROUNDS_4(cwN, n)                                                                          \
   tmp    = _mm_add_epi32(cwN, K.x[n]);                 /* w3+K3 : w2+K2 : w1+K1 : w0+K0 */               \
-  state2 = _mm_sha256rnds2_epu32(state2, state1, tmp); /* state2 = a':b':e':f' / state1 = c':d':g':h' */ \
-  tmp    = _mm_unpackhi_epi64(tmp, tmp);               /* - : - : w3+K3 : w2+K2 */                       \
-  state1 = _mm_sha256rnds2_epu32(state1, state2, tmp); /* state1 = a':b':e':f' / state2 = c':d':g':h' */
+  tmp    = _mm_unpackhi_epi64(tmp, tmp);               /* - : - : w3+K3 : w2+K2 */
 
   /* w0 - w3 */
   SHA256_ROUNDS_4(cw0, 0);

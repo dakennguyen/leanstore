@@ -29,6 +29,10 @@
 
 `mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && make -j`
 
+For debuging and testing:
+
+    mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON .. && make -j
+
 ### Testing
 
 `cd build && make test`
