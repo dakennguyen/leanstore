@@ -1279,7 +1279,7 @@ ssize_t exmap_read_iter(struct kiocb* kiocb, struct iov_iter *iter) {
 
 		iov_iter_save_state(iter, &iter_state);
 		iov_iter_truncate(iter, size);
-		rc = call_read_iter(ctx->file_backend, kiocb, iter);
+		rc = ctx->file_backend->f_op->read_iter(kiocb, iter);
 		iov_iter_restore(iter, &iter_state);
 
 		if (rc < 0) return rc;

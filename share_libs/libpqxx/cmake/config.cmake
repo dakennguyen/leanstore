@@ -11,7 +11,6 @@ endfunction(detect_code_compiled)
 include(CheckIncludeFileCXX)
 include(CheckFunctionExists)
 include(CheckSymbolExists)
-include(CMakeDetermineCompileFeatures)
 include(CheckCXXSourceCompiles)
 include(CMakeFindDependencyMacro)
 
@@ -38,7 +37,6 @@ check_symbol_exists(
 	"${PostgreSQL_INCLUDE_DIR}/libpq-fe.h"
 	PQXX_HAVE_PQENCRYPTPASSWORDCONN)
 
-cmake_determine_compile_features(CXX)
 cmake_policy(SET CMP0057 NEW)
 
 # check_cxx_source_compiles requires CMAKE_REQUIRED_DEFINITIONS to specify

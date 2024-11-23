@@ -10,7 +10,7 @@ void *__vmalloc_array(size_t n, size_t size, gfp_t flags);
 
 
 #define flush_tlb_mm(mm)									\
-	flush_tlb_mm_range(mm, 0UL, TLB_FLUSH_ALL, 0UL, true)
+	flush_tlb_all()
 
 #define flush_tlb_range(vma, start, end)					\
 	flush_tlb_mm_range((vma)->vm_mm, start, end,			\

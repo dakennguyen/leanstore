@@ -677,7 +677,7 @@ unmap_page_fastpath(pte_t *pte) {
 		if (PageUnevictable(page))
 			return NULL;
 
-		new_ptent = native_make_pte(0);
+		new_ptent = (pte_t) { .pte = 0 };
 
 		if (atomic_long_cmpxchg((atomic_long_t*) &(pte->pte), ptent.pte, new_ptent.pte) == ptent.pte)
 			return page;
@@ -773,7 +773,7 @@ more:
 			exmap_debug("insert page success - uaddr %lu - page %lu",
 									uaddr - vma->vm_start, (uaddr - vma->vm_start) / PAGE_SIZE);
 			if (to_flush_local_tlb) {
-				asm volatile("invlpg (%0)" ::"r" (uaddr) : "memory");
+				asm volatile("dsb ishst; tlbi vae1is, %0; dsb ish; isb" :: "r"(uaddr) : "memory");
 			}
 			uaddr += PAGE_SIZE;
 			target_uaddr += PAGE_SIZE;
