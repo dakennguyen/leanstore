@@ -60,7 +60,15 @@ struct LeanStoreFUSE {
 
   static int Open(const char *, struct fuse_file_info *) { return 0; }
 
-  static int Read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *) {
+  static int ReadDir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
+    filler(buf, ".", nullptr, 0);
+    filler(buf, "..", nullptr, 0);
+    filler(buf, "hello", nullptr, 0);
+
+    return 0;
+  }
+
+  static int Read(const char *path, char *buf, size_t size, off_t offset, [[maybe_unused]] struct fuse_file_info *fi) {
     int ret = 0;
 
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
@@ -123,6 +131,7 @@ int main(int argc, char **argv) {
 
   struct fuse_operations fs_oper;
   fs_oper.open    = LeanStoreFUSE::Open;
+  fs_oper.readdir = LeanStoreFUSE::ReadDir;
   fs_oper.read    = LeanStoreFUSE::Read;
   fs_oper.getattr = LeanStoreFUSE::GetAttr;
 
