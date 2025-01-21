@@ -107,6 +107,51 @@ struct LeanStoreFUSE {
 
     return ret;
   }
+
+  static int Write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+    int res = 0;
+
+    obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
+      obj->db->StartTransaction();
+
+      // Look up
+      uint8_t blob_rep[leanstore::BlobState::MAX_MALLOC_SIZE];
+      uint64_t blob_rep_size = 0;
+      auto file_path = FilePath(path);
+      auto file_key  = reinterpret_cast<leanstore::fuse::FileRelation::Key &>(file_path);
+      auto found = obj->adapter->LookUp(file_key, [&](const auto &rec) {
+        blob_rep_size = rec.PayloadSize();
+        std::memcpy(blob_rep, const_cast<leanstore::fuse::FileRelation &>(rec).file_meta.Data(), rec.PayloadSize());
+      });
+      if (!found) {
+        res = -ENOENT;
+        obj->db->CommitTransaction();
+        return;
+      }
+      auto bh = reinterpret_cast<leanstore::BlobState *>(blob_rep);
+      if (static_cast<u64>(offset) >= bh->blob_size) {
+        res = -EFAULT;
+        obj->db->CommitTransaction();
+        return;
+      }
+
+      u8 payload[4096];
+      obj->db->LoadBlob(
+        bh, [&payload](std::span<const u8> content) { std::memcpy(payload, content.data(), content.size()); }, false);
+
+      // Modify
+      strcpy((char *)payload + offset, buf);
+      auto blob_rep2 = obj->db->CreateNewBlob(payload, {}, false);
+
+      // Update
+      obj->adapter->UpdateRawPayload({path}, blob_rep2, [&](const auto &rec) {});
+
+      obj->db->CommitTransaction();
+    });
+
+    return res;
+  }
+
 };
 
 LeanStoreFUSE *LeanStoreFUSE::obj;
@@ -144,6 +189,7 @@ int main(int argc, char **argv) {
   fs_oper.open    = LeanStoreFUSE::Open;
   fs_oper.readdir = LeanStoreFUSE::ReadDir;
   fs_oper.read    = LeanStoreFUSE::Read;
+  fs_oper.write   = LeanStoreFUSE::Write;
   fs_oper.getattr = LeanStoreFUSE::GetAttr;
 
   return fuse_main(argc, argv, &fs_oper, NULL);
