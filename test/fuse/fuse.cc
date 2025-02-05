@@ -63,6 +63,8 @@ struct LeanStoreFUSE {
   static int ReadDir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
     filler(buf, ".", nullptr, 0);
     filler(buf, "..", nullptr, 0);
+    filler(buf, "blob", nullptr, 0);
+    filler(buf, "blob2", nullptr, 0);
     filler(buf, "hello", nullptr, 0);
 
     return 0;
@@ -125,6 +127,15 @@ int main(int argc, char **argv) {
     u8 payload[4096];
     for (auto idx = 0; idx < 4096; idx++) { payload[idx] = 123; }
     auto blob_rep = db->CreateNewBlob({payload, 4096}, {}, false);
+    fs.adapter->InsertRawPayload({"/blob"}, blob_rep);
+
+    u8 payload2[4096];
+    for (auto idx = 0; idx < 4096; idx++) { payload2[idx] = 124; }
+    auto blob_rep2 = db->CreateNewBlob({payload2, 4096}, {}, false);
+    fs.adapter->InsertRawPayload({"/blob2"}, blob_rep2);
+
+    strcpy((char *)payload, "Hello World!");
+    blob_rep = db->CreateNewBlob({payload, strlen((char *)payload)}, {}, false);
     fs.adapter->InsertRawPayload({"/hello"}, blob_rep);
     db->CommitTransaction();
   });
