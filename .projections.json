@@ -1,0 +1,28 @@
+{
+  "*": {
+    "make": "cd build && cmake -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON .. && make -j",
+    "start": "./build/test/LeanStoreFUSE -d -s -f /mnt/test4"
+  },
+  "src/*.cc": {
+    "alternate": "test/{dirname}/test_{basename}.cc",
+    "type": "src"
+  },
+  "benchmark/src/*.cc": {
+    "alternate": "benchmark/src/include/benchmark/{}.h",
+    "type": "src"
+  },
+  "test/**/test_*.cc": {
+    "alternate": "src/{}.cc",
+    "type": "test",
+    "make": "cd build && make -j4 test_{basename}",
+    "dispatch": "./build/test/test_{basename}"
+  },
+  "src/include/*.h": {
+    "alternate": "src/{}.cc",
+    "type": "header"
+  },
+  "benchmark/src/include/benchmark/*.h": {
+    "alternate": "benchmark/src/{}.cc",
+    "type": "header"
+  }
+}
