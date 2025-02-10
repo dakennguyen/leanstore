@@ -1,0 +1,22 @@
+{
+  "src/*.cc": {
+    "alternate": "test/{dirname}/test_{basename}.cc",
+    "type": "src"
+  },
+  "benchmark/src/*.cc": {
+    "alternate": "benchmark/src/include/benchmark/{}.h",
+    "type": "src"
+  },
+  "test/**/test_*.cc": {
+    "alternate": "src/{}.cc",
+    "type": "test"
+  },
+  "src/include/*.h": {
+    "alternate": "src/{}.cc",
+    "type": "header"
+  },
+  "benchmark/src/include/benchmark/*.h": {
+    "alternate": "benchmark/src/{}.cc",
+    "type": "header"
+  }
+}
