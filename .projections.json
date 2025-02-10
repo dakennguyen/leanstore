@@ -1,0 +1,14 @@
+{
+  "src/*.cc": {
+    "alternate": "test/{dirname}/test_{basename}.cc",
+    "type": "src"
+  },
+  "test/**/test_*.cc": {
+    "alternate": "src/{}.cc",
+    "type": "test"
+  },
+  "src/include/*.h": {
+    "alternate": "src/{}.cc",
+    "type": "header"
+  }
+}
