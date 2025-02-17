@@ -380,6 +380,7 @@ auto BlobManager::MoveTailExtent(transaction::Transaction &txn, std::span<const 
  * For now, only support:
  * - Allocating a whole new blob
  * - Appending content to an existing blob
+ * - TODO(Khoa): Support for updating a blob
  *
  * *NOTE*: Do not mark this newly allocated Blob as full load, because if we do it,
  *  then during transaction commit, those db pages will be UnfixShare-ed, causing undefined behavior
@@ -406,7 +407,7 @@ auto BlobManager::AllocateBlob(std::span<const u8> payload, const BlobState *pre
 
   // If this is a growing operator, load the content of previous blob into memory
   // We only need the content of all previous extents, i.e. don't need them in contiguous memory
-  if (prev_blob != nullptr) { LoadBlobContent(prev_blob, prev_blob->blob_size); }
+  if (prev_blob != nullptr) { LoadBlobContent(prev_blob, prev_blob->blob_size); } // TODO(Khoa)
 
   /**
    * @brief Special block initialization:
