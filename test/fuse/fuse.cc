@@ -98,8 +98,9 @@ struct LeanStoreFUSE {
         return;
       }
 
-      obj->db->LoadBlob(
-        bh, [&](std::span<const u8> content) { std::memcpy(buf, content.data() + offset, size); }, false);
+      obj->db->LoadBlob(bh, [&](std::span<const u8> content) {
+        std::memcpy(buf, content.data() + offset, size);
+      }, false);
 
       ret = std::min(size, bh->blob_size - offset);
       obj->db->CommitTransaction();

@@ -246,7 +246,7 @@ void BlobManager::ExtendExistingBlob(std::span<const u8> payload, BlobState *out
 /**
  * @brief Load the full content of the corresponding BlobState
  */
-void BlobManager::LoadBlobContent(const BlobState *blob, u64 required_load_size) {
+void BlobManager::LoadBlobContent(const BlobState *blob, u64 required_load_size, off_t offset) {
   // Try to load all extents until meets the requirement
   u64 load_size = 0;
   LargePageList to_read_extents;
@@ -472,11 +472,11 @@ void BlobManager::RemoveBlob(const BlobState *blob) {
   if (blob->extents.special_blk.in_used) { PREPARE_FREE_SPECIAL_BLK(blob); }
 }
 
-void BlobManager::LoadBlob(const BlobState *blob, u64 required_load_size, const BlobCallbackFunc &cb) {
+void BlobManager::LoadBlob(const BlobState *blob, u64 required_load_size, const BlobCallbackFunc &cb, off_t offset) {
   // Don't read more the the capacity of the Blob
   if (required_load_size > blob->blob_size || required_load_size == 0) { required_load_size = blob->blob_size; }
 
-  LoadBlobContent(blob, required_load_size);
+  LoadBlobContent(blob, required_load_size, offset);
   auto guard = PageAliasGuard(buffer_, *blob, required_load_size);
   cb({guard.GetPtr(), required_load_size});
 }
