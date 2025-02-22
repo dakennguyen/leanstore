@@ -19,7 +19,7 @@ using BlobCallbackFunc = std::function<void(std::span<const u8>)>;
 
 // RAII Large Page Alias
 struct PageAliasGuard {
-  PageAliasGuard(buffer::BufferManager *buffer, const BlobState &blob, u64 required_load_size);
+  PageAliasGuard(buffer::BufferManager *buffer, const BlobState &blob, u64 required_load_size, LargePageList &to_read_extents);
   ~PageAliasGuard();
   auto GetPtr() -> u8 *;
 
@@ -50,7 +50,7 @@ class BlobManager {
   auto BlobStateComparison(const void *a, const void *b) -> int;
 
  private:
-  void LoadBlobContent(const BlobState *blob, u64 required_load_size, off_t offset = 0);
+  auto LoadBlobContent(const BlobState *blob, u64 required_load_size, off_t offset = 0) -> LargePageList;
 
   // Move data utilities
   auto WriteNewDataToLastExtent(transaction::Transaction &txn, std::span<const u8> payload, BlobState *blob) -> u64;
