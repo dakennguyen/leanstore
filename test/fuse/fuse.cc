@@ -98,8 +98,9 @@ struct LeanStoreFUSE {
         return;
       }
 
-      obj->db->LoadBlob(
-        bh, [&](std::span<const u8> content) { std::memcpy(buf, content.data() + offset, size); }, false);
+      obj->db->LoadBlob(bh, [&](std::span<const u8> content) {
+        std::memcpy(buf, content.data(), content.size());
+      }, size, offset);
 
       ret = std::min(size, bh->blob_size - offset);
       obj->db->CommitTransaction();
@@ -124,9 +125,9 @@ int main(int argc, char **argv) {
   // Initialize temp BLOB
   db->worker_pool.ScheduleSyncJob(0, [&]() {
     db->StartTransaction();
-    u8 payload[4096];
-    for (auto idx = 0; idx < 4096; idx++) { payload[idx] = 123; }
-    auto blob_rep = db->CreateNewBlob({payload, 4096}, {}, false);
+    u8 payload[12288];
+    for (auto idx = 0; idx < 12288; idx++) { payload[idx] = 97 + idx % 10; }
+    auto blob_rep = db->CreateNewBlob({payload, 12288}, {}, false);
     fs.adapter->InsertRawPayload({"/blob"}, blob_rep);
 
     u8 payload2[4096];

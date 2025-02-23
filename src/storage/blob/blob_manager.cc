@@ -79,7 +79,7 @@ thread_local roaring::Roaring64Map BlobManager::extent_loaded{};
 thread_local std::array<u8, BlobState::MallocSize(ExtentList::EXTENT_CNT_MASK)> BlobManager::blob_handler_storage;
 
 // -------------------------------------------------------------------------------------
-PageAliasGuard::PageAliasGuard(buffer::BufferManager *buffer, const BlobState &blob, u64 required_load_size)
+PageAliasGuard::PageAliasGuard(buffer::BufferManager *buffer, const BlobState &blob, u64 required_load_size, off_t offset)
     : buffer_(buffer) {
   // FLAGS_blob_normal_buffer_pool: 2nd extra overhead
   if (FLAGS_blob_normal_buffer_pool) {
@@ -112,20 +112,30 @@ PageAliasGuard::PageAliasGuard(buffer::BufferManager *buffer, const BlobState &b
   // Prepare the aliasing params
   u64 alias_size = 0;
   size_t idx     = 0;
+  size_t count = 0;
   for (; (idx < blob.extents.NumberOfExtents()) && (alias_size < required_load_size); idx++) {
-    auto pg_cnt = ExtentList::ExtentSize(idx);
+    auto extent = blob.extents[idx];
+    off_t start_byte = (extent.start_pid - 1) * PAGE_SIZE;
+    off_t end_byte = start_byte + extent.page_cnt * PAGE_SIZE - 1;
+    if (offset > end_byte) { continue; }
+
+    auto start_page_idx = offset < start_byte ? 0 : (offset - start_byte) / PAGE_SIZE;
+    auto start_pid = extent.start_pid + start_page_idx;
+    auto pg_cnt = extent.page_cnt - start_page_idx;
+
     assert(pg_cnt <= EXMAP_PAGE_MAX_PAGES);
-    buffer->exmap_interface_[worker_thread_id]->iov[idx].page = blob.extents.extent_pid[idx];
-    buffer->exmap_interface_[worker_thread_id]->iov[idx].len  = pg_cnt;
-    assert(buffer->exmap_interface_[worker_thread_id]->iov[idx].len == pg_cnt);
+    buffer->exmap_interface_[worker_thread_id]->iov[count].page = start_pid;
+    buffer->exmap_interface_[worker_thread_id]->iov[count].len  = pg_cnt;
+    assert(buffer->exmap_interface_[worker_thread_id]->iov[count].len == pg_cnt);
+    count++;
     alias_size += pg_cnt * PAGE_SIZE;
   }
   if (blob.extents.special_blk.in_used && alias_size < required_load_size) {
-    idx++;
     assert(blob.extents.special_blk.page_cnt <= EXMAP_PAGE_MAX_PAGES);
-    buffer->exmap_interface_[worker_thread_id]->iov[idx - 1].page = blob.extents.special_blk.start_pid;
-    buffer->exmap_interface_[worker_thread_id]->iov[idx - 1].len  = blob.extents.special_blk.page_cnt;
-    assert(buffer->exmap_interface_[worker_thread_id]->iov[idx - 1].page == blob.extents.special_blk.start_pid);
+    buffer->exmap_interface_[worker_thread_id]->iov[count].page = blob.extents.special_blk.start_pid;
+    buffer->exmap_interface_[worker_thread_id]->iov[count].len  = blob.extents.special_blk.page_cnt;
+    assert(buffer->exmap_interface_[worker_thread_id]->iov[count].page == blob.extents.special_blk.start_pid);
+    count++;
     alias_size += blob.extents.special_blk.page_cnt * PAGE_SIZE;
   }
   Ensure(alias_size >= required_load_size);
@@ -133,13 +143,16 @@ PageAliasGuard::PageAliasGuard(buffer::BufferManager *buffer, const BlobState &b
   // Aliasing the whole blob
   struct exmap_action_params params = {
     .interface = static_cast<u16>(worker_thread_id),
-    .iov_len   = static_cast<u16>(idx),
+    .iov_len   = static_cast<u16>(count),
     .opcode    = static_cast<u16>(EXMAP_OP_SHADOW),
     .page_id   = alias_pid,
   };
 
   // Execute Exmap SHADOW operation
   Ensure(ioctl(buffer->exmapfd_, EXMAP_IOCTL_ACTION, &params) >= 0);
+
+  // Point to the correct position within the first page
+  ptr_ = ptr_ + (offset % PAGE_SIZE);
 }
 
 PageAliasGuard::~PageAliasGuard() {
@@ -246,16 +259,24 @@ void BlobManager::ExtendExistingBlob(std::span<const u8> payload, BlobState *out
 /**
  * @brief Load the full content of the corresponding BlobState
  */
-void BlobManager::LoadBlobContent(const BlobState *blob, u64 required_load_size) {
+void BlobManager::LoadBlobContent(const BlobState *blob, u64 required_load_size, off_t offset) {
   // Try to load all extents until meets the requirement
   u64 load_size = 0;
   LargePageList to_read_extents;
   for (auto &extent : blob->extents) {
-    if (!extent_loaded.contains(extent.start_pid)) {
-      extent_loaded.add(extent.start_pid);
-      to_read_extents.emplace_back(extent.start_pid, extent.page_cnt);
+    off_t start_byte = (extent.start_pid - 1) * PAGE_SIZE;
+    off_t end_byte = start_byte + extent.page_cnt * PAGE_SIZE - 1;
+    if (offset > end_byte) { continue; }
+
+    auto start_page_idx = offset < start_byte ? 0 : (offset - start_byte) / PAGE_SIZE;
+    auto start_pid = extent.start_pid + start_page_idx;
+    auto page_cnt = extent.page_cnt - start_page_idx;
+
+    if (!extent_loaded.contains(start_pid)) {
+      extent_loaded.add(start_pid);
+      to_read_extents.emplace_back(start_pid, page_cnt);
     }
-    load_size += extent.page_cnt * PAGE_SIZE;
+    load_size += page_cnt * PAGE_SIZE;
     if (load_size >= required_load_size) { break; }
   }
 
@@ -471,12 +492,12 @@ void BlobManager::RemoveBlob(const BlobState *blob) {
   if (blob->extents.special_blk.in_used) { PREPARE_FREE_SPECIAL_BLK(blob); }
 }
 
-void BlobManager::LoadBlob(const BlobState *blob, u64 required_load_size, const BlobCallbackFunc &cb) {
+void BlobManager::LoadBlob(const BlobState *blob, u64 required_load_size, const BlobCallbackFunc &cb, off_t offset) {
   // Don't read more the the capacity of the Blob
   if (required_load_size > blob->blob_size || required_load_size == 0) { required_load_size = blob->blob_size; }
 
-  LoadBlobContent(blob, required_load_size);
-  auto guard = PageAliasGuard(buffer_, *blob, required_load_size);
+  LoadBlobContent(blob, required_load_size, offset);
+  auto guard = PageAliasGuard(buffer_, *blob, required_load_size, offset);
   cb({guard.GetPtr(), required_load_size});
 }
 
