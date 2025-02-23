@@ -73,7 +73,7 @@ class LeanStore {
 
   // Blob utilities
   auto CreateNewBlob(std::span<const u8> blob_payload, BlobState *prev_blob, bool likely_grow) -> std::span<const u8>;
-  void LoadBlob(const BlobState *blob_t, const storage::blob::BlobCallbackFunc &read_cb, bool partial_load = true);
+  void LoadBlob(const BlobState *blob_t, const storage::blob::BlobCallbackFunc &read_cb, bool partial_load = true, off_t offset = 0);
   void RemoveBlob(BlobState *blob_t);
 
   // Comparison utilities
