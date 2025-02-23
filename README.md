@@ -36,3 +36,9 @@ For debuging and testing:
 ### Testing
 
 `cd build && make test`
+
+### Commands
+
+Read with offset:
+
+    dd if=/mnt/test4/blob bs=123 count=1 skip=2 iflag=direct
