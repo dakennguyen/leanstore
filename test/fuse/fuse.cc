@@ -12,7 +12,7 @@ struct LeanStoreFUSE {
   leanstore::LeanStore *db;
   std::unique_ptr<LeanStoreAdapter<leanstore::fuse::FileRelation>> adapter;
 
-  LeanStoreFUSE(leanstore::LeanStore *db)
+  explicit LeanStoreFUSE(leanstore::LeanStore *db)
       : db(db), adapter(std::make_unique<LeanStoreAdapter<leanstore::fuse::FileRelation>>(*db)) {}
 
   ~LeanStoreFUSE() = default;
@@ -24,7 +24,7 @@ struct LeanStoreFUSE {
 
     stbuf->st_uid   = getuid();
     stbuf->st_gid   = getgid();
-    stbuf->st_atime = stbuf->st_mtime = stbuf->st_ctime = time(NULL);
+    stbuf->st_atime = stbuf->st_mtime = stbuf->st_ctime = time(nullptr);
 
     if (filename == "/") {
       stbuf->st_mode  = S_IFDIR | 0777;
@@ -58,9 +58,33 @@ struct LeanStoreFUSE {
     return res;
   }
 
-  static int Open(const char *, struct fuse_file_info *) { return 0; }
+  static int Create(const char *path, mode_t /*unused*/, struct fuse_file_info * /*unused*/) {
+    obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
+      obj->db->StartTransaction();
+      obj->adapter->Insert({path}, {});
+      obj->db->CommitTransaction();
+    });
 
-  static int ReadDir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
+    return 0;
+  }
+
+  static int Open(const char * /*unused*/, struct fuse_file_info * /*unused*/) { return 0; }
+
+  static int Getxattr (const char * /*unused*/, const char * /*unused*/, char * /*unused*/, size_t /*unused*/) { return 0; };
+
+  static int Access(const char * /*unused*/, int /*unused*/) { return 0; }
+
+  static int Truncate(const char * /*unused*/, off_t /*unused*/) { return 0; }
+
+  static int Utimens(const char * /*unused*/, const struct timespec  /*unused*/[2]) { return 0; }
+
+  static int Chown(const char * /*unused*/, uid_t /*unused*/, gid_t /*unused*/) { return 0; }
+
+  static int Fsync (const char * /*unused*/, int /*unused*/, struct fuse_file_info * /*unused*/) { return 0; };
+
+  static int Flush (const char * /*unused*/, struct fuse_file_info * /*unused*/) { return 0; };
+
+  static int ReadDir(const char * /*unused*/, void *buf, fuse_fill_dir_t filler, off_t /*unused*/, struct fuse_file_info * /*unused*/) {
     filler(buf, ".", nullptr, 0);
     filler(buf, "..", nullptr, 0);
     filler(buf, "blob", nullptr, 0);
@@ -109,7 +133,7 @@ struct LeanStoreFUSE {
     return ret;
   }
 
-  static int Write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+  static int Write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info * /*unused*/) {
     int res = 0;
 
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
@@ -130,24 +154,19 @@ struct LeanStoreFUSE {
         return;
       }
       auto bh = reinterpret_cast<leanstore::BlobState *>(blob_rep);
-      if (static_cast<u64>(offset) >= bh->blob_size) {
-        res = -EFAULT;
-        obj->db->CommitTransaction();
-        return;
-      }
-
       size_t payload_size = std::max(bh->blob_size, offset + size);
       u8 payload[payload_size];
       obj->db->LoadBlob(
-        bh, [&payload](std::span<const u8> content) { std::memcpy(payload, content.data(), content.size()); }, false);
+        bh, [&payload](std::span<const u8> content) { std::memcpy(payload, content.data(), content.size()); }, 0);
 
       // Modify
       std::memcpy(payload + offset, buf, size);
       auto blob_rep2 = obj->db->CreateNewBlob({payload, payload_size}, {}, false);
 
       // Update
-      obj->adapter->UpdateRawPayload({path}, blob_rep2, [&](const auto &rec) {});
+      obj->adapter->UpdateRawPayload({path}, blob_rep2, [&](const auto &) {});
 
+      res = size;
       obj->db->CommitTransaction();
     });
 
@@ -176,7 +195,7 @@ int main(int argc, char **argv) {
     fs.adapter->InsertRawPayload({"/blob"}, blob_rep);
 
     u8 payload2[4096];
-    for (auto idx = 0; idx < 4096; idx++) { payload2[idx] = 124; }
+    for (unsigned char & byte : payload2) { byte = 124; }
     auto blob_rep2 = db->CreateNewBlob({payload2, 4096}, {}, false);
     fs.adapter->InsertRawPayload({"/blob2"}, blob_rep2);
 
@@ -187,11 +206,19 @@ int main(int argc, char **argv) {
   });
 
   struct fuse_operations fs_oper;
-  fs_oper.open    = LeanStoreFUSE::Open;
-  fs_oper.readdir = LeanStoreFUSE::ReadDir;
-  fs_oper.read    = LeanStoreFUSE::Read;
-  fs_oper.write   = LeanStoreFUSE::Write;
-  fs_oper.getattr = LeanStoreFUSE::GetAttr;
+  fs_oper.open     = LeanStoreFUSE::Open;
+  fs_oper.access   = LeanStoreFUSE::Access;
+  fs_oper.create   = LeanStoreFUSE::Create;
+  fs_oper.readdir  = LeanStoreFUSE::ReadDir;
+  fs_oper.read     = LeanStoreFUSE::Read;
+  fs_oper.write    = LeanStoreFUSE::Write;
+  fs_oper.getattr  = LeanStoreFUSE::GetAttr;
+  fs_oper.truncate = LeanStoreFUSE::Truncate;
+  fs_oper.utimens  = LeanStoreFUSE::Utimens;
+  fs_oper.chown    = LeanStoreFUSE::Chown;
+  fs_oper.getxattr = LeanStoreFUSE::Getxattr;
+  fs_oper.fsync    = LeanStoreFUSE::Fsync;
+  fs_oper.flush    = LeanStoreFUSE::Flush;
 
-  return fuse_main(argc, argv, &fs_oper, NULL);
+  return fuse_main(argc, argv, &fs_oper, nullptr);
 }
