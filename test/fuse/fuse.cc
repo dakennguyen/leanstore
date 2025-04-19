@@ -154,14 +154,23 @@ struct LeanStoreFUSE {
         return;
       }
       auto bh = reinterpret_cast<leanstore::BlobState *>(blob_rep);
-      size_t payload_size = std::max(bh->blob_size, offset + size);
-      u8 payload[payload_size];
-      obj->db->LoadBlob(
-        bh, [&payload](std::span<const u8> content) { std::memcpy(payload, content.data(), content.size()); }, 0);
+      std::span<const u8> blob_rep2;
 
-      // Modify
-      std::memcpy(payload + offset, buf, size);
-      auto blob_rep2 = obj->db->CreateNewBlob({payload, payload_size}, {}, false);
+      if (bh->blob_size == 0 || (uint64_t)offset < bh->blob_size) {
+        size_t payload_size = std::max(bh->blob_size, offset + size);
+        u8 payload[payload_size];
+        obj->db->LoadBlob(
+          bh, [&payload](std::span<const u8> content) { std::memcpy(payload, content.data(), content.size()); }, 0);
+
+        // Modify
+        std::memcpy(payload + offset, buf, size);
+        blob_rep2 = obj->db->CreateNewBlob({payload, payload_size}, {}, false);
+      } else {
+        // Append
+        u8 payload[size];
+        std::memcpy(payload, buf, size);
+        blob_rep2 = obj->db->CreateNewBlob({payload, size}, bh, false);
+      }
 
       // Update
       obj->adapter->UpdateRawPayload({path}, blob_rep2, [&](const auto &) {});

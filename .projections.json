@@ -1,7 +1,7 @@
 {
   "*": {
     "make": "cd build && cmake -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON .. && make -j",
-    "start": "./build/test/LeanStoreFUSE -d -s -f /mnt/test4"
+    "start": "pm2 logs"
   },
   "src/*.cc": {
     "alternate": "test/{dirname}/test_{basename}.cc",
