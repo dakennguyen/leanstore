@@ -119,16 +119,16 @@ PageAliasGuard::PageAliasGuard(buffer::BufferManager *buffer, const BlobState &b
     off_t end_byte = start_byte + extent.page_cnt * PAGE_SIZE - 1;
     if (offset > end_byte) { continue; }
 
-    auto start_page_idx = offset < start_byte ? 0 : (offset - start_byte) / PAGE_SIZE;
-    auto start_pid = extent.start_pid + start_page_idx;
-    auto pg_cnt = extent.page_cnt - start_page_idx;
+    auto target_page_idx = offset < start_byte ? 0 : (offset - start_byte) / PAGE_SIZE;
+    auto target_pid = extent.start_pid + target_page_idx;
+    auto target_page_cnt = std::min(extent.page_cnt - target_page_idx, required_load_size / PAGE_SIZE + 1);
 
-    assert(pg_cnt <= EXMAP_PAGE_MAX_PAGES);
-    buffer->exmap_interface_[worker_thread_id]->iov[count].page = start_pid;
-    buffer->exmap_interface_[worker_thread_id]->iov[count].len  = pg_cnt;
-    assert(buffer->exmap_interface_[worker_thread_id]->iov[count].len == pg_cnt);
+    assert(target_page_cnt <= EXMAP_PAGE_MAX_PAGES);
+    buffer->exmap_interface_[worker_thread_id]->iov[count].page = target_pid;
+    buffer->exmap_interface_[worker_thread_id]->iov[count].len  = target_page_cnt;
+    assert(buffer->exmap_interface_[worker_thread_id]->iov[count].len == target_page_cnt);
     count++;
-    alias_size += pg_cnt * PAGE_SIZE;
+    alias_size += target_page_cnt * PAGE_SIZE;
   }
   if (blob.extents.special_blk.in_used && alias_size < required_load_size) {
     assert(blob.extents.special_blk.page_cnt <= EXMAP_PAGE_MAX_PAGES);
@@ -268,15 +268,15 @@ void BlobManager::LoadBlobContent(const BlobState *blob, u64 required_load_size,
     off_t end_byte = start_byte + extent.page_cnt * PAGE_SIZE - 1;
     if (offset > end_byte) { continue; }
 
-    auto start_page_idx = offset < start_byte ? 0 : (offset - start_byte) / PAGE_SIZE;
-    auto start_pid = extent.start_pid + start_page_idx;
-    auto page_cnt = extent.page_cnt - start_page_idx;
+    auto target_page_idx = offset < start_byte ? 0 : (offset - start_byte) / PAGE_SIZE;
+    auto target_pid = extent.start_pid + target_page_idx;
+    auto target_page_cnt = std::min(extent.page_cnt - target_page_idx, required_load_size / PAGE_SIZE + 1);
 
-    if (!extent_loaded.contains(start_pid)) {
-      extent_loaded.add(start_pid);
-      to_read_extents.emplace_back(start_pid, page_cnt);
+    if (!extent_loaded.contains(target_pid)) {
+      extent_loaded.add(target_pid);
+      to_read_extents.emplace_back(target_pid, target_page_cnt);
     }
-    load_size += page_cnt * PAGE_SIZE;
+    load_size += target_page_cnt * PAGE_SIZE;
     if (load_size >= required_load_size) { break; }
   }
 
