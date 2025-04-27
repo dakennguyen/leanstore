@@ -2,6 +2,7 @@
 #include "transaction/transaction_manager.h"
 
 #include <algorithm>
+#include <iostream>
 #include <span>
 
 namespace leanstore::storage::blob {
@@ -298,7 +299,7 @@ void BlobManager::LoadBlobContent(const BlobState *blob, u64 required_load_size,
  * @brief If the last extent of a Blob has free space,
  *  then write data from `payload` to that and mark those pages for eviction
  */
-auto BlobManager::WriteNewDataToLastExtent(transaction::Transaction &txn, std::span<const u8> payload, BlobState *blob)
+auto BlobManager::WriteNewDataToLastExtent(transaction::Transaction &txn, std::span<const u8> payload, BlobState *blob) // TODO(Khoa): here
   -> u64 {
   u64 write_size        = 0;
   u64 remain_free_bytes = blob->RemainBytesInLastExtent();
@@ -429,7 +430,7 @@ auto BlobManager::AllocateBlob(std::span<const u8> payload, const BlobState *pre
 
   // If this is a growing operator, load the content of previous blob into memory
   // We only need the content of all previous extents, i.e. don't need them in contiguous memory
-  if (prev_blob != nullptr) { LoadBlobContent(prev_blob, prev_blob->blob_size); } // TODO(Khoa)
+  if (prev_blob != nullptr) { LoadBlobContent(prev_blob, prev_blob->blob_size); } // TODO(Khoa), add offset here?
 
   /**
    * @brief Special block initialization:
@@ -467,16 +468,16 @@ auto BlobManager::AllocateBlob(std::span<const u8> payload, const BlobState *pre
   }
 
   // Calculate SHA-256 value for the Blob Handler
-  BlobState::sha_context.Initialize();
-  auto offset = 0UL;
-  for (auto &extent : out_blob->extents) { SHA2_CALC_LP(extent); }
-  if (offset < out_blob->blob_size) {
-    // If we haven't calculated SHA-256 for this BLOB, this means we have the special block
-    Ensure(out_blob->extents.special_blk.in_used);
-    SHA2_CALC_LP(out_blob->extents.special_blk);
-  }
-  BlobState::sha_context.Serialize(&out_blob->sha256_intermediate[0]);
-  BlobState::sha_context.Final(out_blob->sha2_val);
+  // BlobState::sha_context.Initialize();
+  // auto offset = 0UL;
+  // for (auto &extent : out_blob->extents) { SHA2_CALC_LP(extent); }
+  // if (offset < out_blob->blob_size) {
+  //   // If we haven't calculated SHA-256 for this BLOB, this means we have the special block
+  //   Ensure(out_blob->extents.special_blk.in_used);
+  //   SHA2_CALC_LP(out_blob->extents.special_blk);
+  // }
+  // BlobState::sha_context.Serialize(&out_blob->sha256_intermediate[0]);
+  // BlobState::sha_context.Final(out_blob->sha2_val);
 
   return out_blob;
 }

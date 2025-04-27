@@ -88,10 +88,7 @@ struct LeanStoreFUSE {
     if (parent_inode_id == 0) { return -ENOENT; }
 
     obj->dblite->ui << "INSERT INTO inode (size, is_directory) VALUES (0, 0);";
-    obj->dblite->ui << "SELECT last_insert_rowid();" >> [&](int inode_id) {
-      std::cout << "DEBUG inode_id: " << inode_id << std::endl;
-      ino = inode_id;
-    };
+    obj->dblite->ui << "SELECT last_insert_rowid();" >> [&](int inode_id) { ino = inode_id; };
     obj->dblite->ui << fmt::format(
       "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('{}', '{}', {}, {});",
       str_path, filename, parent_inode_id, ino);
@@ -124,8 +121,6 @@ struct LeanStoreFUSE {
   static int Flush(const char * /*unused*/, struct fuse_file_info * /*unused*/) { return 0; };
 
   static int MkDir(const char *path, mode_t /*unused*/) {
-    std::cout << "DEBUG MkDir: " << path << std::endl;
-
     std::string str_path(path);
     size_t pos    = str_path.find_last_of('/');
     auto parent   = str_path.substr(0, pos);
@@ -137,10 +132,7 @@ struct LeanStoreFUSE {
       [&](int target_inode_id) { parent_inode_id = target_inode_id; };
     if (parent_inode_id == 0) { return -ENOENT; }
     obj->dblite->ui << "INSERT INTO inode (size, is_directory) VALUES (0, 1);";
-    obj->dblite->ui << "SELECT last_insert_rowid();" >> [&](int inode_id) {
-      std::cout << "DEBUG inode_id: " << inode_id << std::endl;
-      ino = inode_id;
-    };
+    obj->dblite->ui << "SELECT last_insert_rowid();" >> [&](int inode_id) { ino = inode_id; };
 
     obj->dblite->ui << fmt::format(
       "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('{}', '{}', {}, {});",
@@ -170,7 +162,17 @@ struct LeanStoreFUSE {
     return 0;
   }
 
-  static int Unlink (const char * path) {
+  static int Unlink(const char *path) {
+    std::string filename = path;
+    int ino              = 0;
+    obj->dblite->ui << "SELECT target_inode_id, file_name FROM dentry WHERE file_path = ?" << filename >>
+      [&](int target_inode_id, const std::string &file_name) {
+        if (file_name != "..") { ino = target_inode_id; }
+      };
+    if (ino == 0) { return -ENOENT; }
+    obj->dblite->ui << "PRAGMA foreign_keys = ON;";
+    obj->dblite->ui << "DELETE FROM inode WHERE id = ?;" << ino;
+
     int ret = 0;
 
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
@@ -224,6 +226,10 @@ struct LeanStoreFUSE {
         return;
       }
 
+      // for (int i = 0; i < 32; i++) {
+      //   std::cout << "DEBUG sha2_val[" << i << "]: " << (int)bh->sha2_val[i] << std::endl;
+      // }
+
       obj->db->LoadBlob(
         bh, [&](std::span<const u8> content) { std::memcpy(buf, content.data(), content.size()); }, size, offset);
 
@@ -255,8 +261,8 @@ struct LeanStoreFUSE {
         return;
       }
       auto bh = reinterpret_cast<leanstore::BlobState *>(blob_rep);
-      std::span<const u8> blob_rep2;
 
+      std::span<const u8> span_bh2;
       if (bh->blob_size == 0 || (uint64_t)offset < bh->blob_size) {
         size_t payload_size = std::max(bh->blob_size, offset + size);
         u8 payload[payload_size];
@@ -265,16 +271,20 @@ struct LeanStoreFUSE {
 
         // Modify
         std::memcpy(payload + offset, buf, size);
-        blob_rep2 = obj->db->CreateNewBlob({payload, payload_size}, {}, false);
+        span_bh2 = obj->db->CreateNewBlob({payload, payload_size}, {}, false);
       } else {
         // Append
         u8 payload[size];
         std::memcpy(payload, buf, size);
-        blob_rep2 = obj->db->CreateNewBlob({payload, size}, bh, false);
+        // auto start                            = std::chrono::high_resolution_clock::now();
+        span_bh2 = obj->db->CreateNewBlob({payload, size}, bh, false);
+        // auto end                              = std::chrono::high_resolution_clock::now();
+        // std::chrono::duration<double> elapsed = end - start;
+        // std::cout << "Elapsed time (total): " << elapsed.count() << " seconds" << std::endl;
       }
 
       // Update
-      obj->adapter->UpdateRawPayload({path}, blob_rep2, [&](const auto &) {});
+      obj->adapter->UpdateRawPayload({path}, span_bh2, [&](const auto &) {});
 
       res = size;
       obj->db->CommitTransaction();
@@ -302,8 +312,10 @@ int main(int argc, char **argv) {
   fs.dblite->ui << "CREATE TABLE inode ( id INTEGER PRIMARY KEY, size INTEGER NOT NULL, is_directory BOOLEAN NOT NULL "
                    "CHECK (is_directory IN (0, 1)));";
   fs.dblite->ui << "CREATE TABLE dentry ( file_path TEXT NOT NULL, file_name TEXT NOT NULL, parent_inode_id INTEGER "
-                   "NOT NULL, target_inode_id INTEGER NOT NULL, FOREIGN KEY (parent_inode_id) REFERENCES inode(id), "
-                   "FOREIGN KEY (target_inode_id) REFERENCES inode(id), PRIMARY KEY (file_name, parent_inode_id));";
+                   "NOT NULL, target_inode_id INTEGER NOT NULL, FOREIGN KEY (parent_inode_id) REFERENCES inode(id) ON "
+                   "DELETE CASCADE, "
+                   "FOREIGN KEY (target_inode_id) REFERENCES inode(id) ON DELETE CASCADE, PRIMARY KEY (file_name, "
+                   "parent_inode_id));";
   fs.dblite->CommitTransaction();
 
   // Initialize temp BLOB

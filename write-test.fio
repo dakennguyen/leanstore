@@ -1,0 +1,7 @@
+[write-test]
+rw=write
+bs=8K
+size=100M
+numjobs=1
+iodepth=16
+direct=1
