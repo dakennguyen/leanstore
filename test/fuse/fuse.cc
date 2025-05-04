@@ -94,6 +94,32 @@ struct LeanStoreFUSE {
     return 0;
   }
 
+  static int Unlink (const char * path) {
+    int ret = 0;
+
+    obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
+      obj->db->StartTransaction();
+      uint8_t blob_rep[leanstore::BlobState::MAX_MALLOC_SIZE];
+
+      auto file_path = FilePath(path);
+      auto file_key  = reinterpret_cast<leanstore::fuse::FileRelation::Key &>(file_path);
+
+      auto found = obj->adapter->LookUp(file_key, [&](const auto &rec) {
+        std::memcpy(blob_rep, const_cast<leanstore::fuse::FileRelation &>(rec).file_meta.Data(), rec.PayloadSize());
+      });
+      if (!found) {
+        ret = -ENOENT;
+        obj->db->CommitTransaction();
+        return;
+      }
+      obj->adapter->RemoveBlob(blob_rep);
+      obj->adapter->Erase(file_key);
+      obj->db->CommitTransaction();
+    });
+
+    return ret;
+  };
+
   static int Read(const char *path, char *buf, size_t size, off_t offset, [[maybe_unused]] struct fuse_file_info *fi) {
     int ret = 0;
 
@@ -228,6 +254,7 @@ int main(int argc, char **argv) {
   fs_oper.getxattr = LeanStoreFUSE::Getxattr;
   fs_oper.fsync    = LeanStoreFUSE::Fsync;
   fs_oper.flush    = LeanStoreFUSE::Flush;
+  fs_oper.unlink   = LeanStoreFUSE::Unlink;
 
   return fuse_main(argc, argv, &fs_oper, nullptr);
 }
