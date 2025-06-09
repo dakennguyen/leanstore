@@ -14,9 +14,13 @@
 
 ### Core
 
-`sudo apt-get install cmake libtbb-dev libfmt-dev libgflags-dev libgtest-dev libgmock-dev libgcrypt-dev liburing-dev libzstd-dev libbenchmark-dev libssl-dev`
+`sudo apt-get install cmake libtbb-dev libfmt-dev libgflags-dev libgtest-dev libgmock-dev libgcrypt-dev liburing-dev libzstd-dev libbenchmark-dev libssl-dev libboost-all-dev`
 
 **exmap**: stored in `share_libs/exmap`
+
+    sudo apt update
+    sudo apt install linux-headers-$(uname -r)
+
 - Run `sudo ./load.sh`
 
 ### Third-party databases

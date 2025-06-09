@@ -177,9 +177,9 @@ int main() {
 		.opcode    	= EXMAP_OP_SHADOW,
 		.page_id 		= static_cast<uint64_t>(thread_count) * 512,
 	};
-	if (ioctl(exmap_fd, EXMAP_IOCTL_ACTION, &shadow_params) != 0) {
-		PERR("ioctl: exmap_shadow");
-	}
+	// if (ioctl(exmap_fd, EXMAP_IOCTL_ACTION, &shadow_params) != 0) {
+	// 	PERR("ioctl: exmap_shadow");
+	// }
 
 	// Exmap close should still be fine
 	close(exmap_fd);

@@ -1,6 +1,6 @@
 {
   "*": {
-    "make": "cd build && cmake -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON .. && make -j",
+    "make": "cd build && cmake -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON .. && make -j8",
     "start": "pm2 logs"
   },
   "src/*.cc": {
