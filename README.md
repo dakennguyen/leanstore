@@ -42,3 +42,8 @@ For debuging and testing:
 Read with offset:
 
     dd if=/mnt/test4/blob bs=123 count=1 skip=2 iflag=direct
+
+Filebench:
+
+     <!-- https://github.com/filebench/filebench/issues/156 -->
+     echo 0 > /proc/sys/kernel/randomize_va_space
