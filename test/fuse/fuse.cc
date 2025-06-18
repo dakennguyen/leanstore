@@ -20,7 +20,7 @@ struct LeanStoreFUSE {
   explicit LeanStoreFUSE(leanstore::LeanStore *db)
       : db(db),
         adapter(std::make_unique<LeanStoreAdapter<leanstore::fuse::FileRelation>>(*db)),
-        dblite(std::make_unique<SQLiteDB>("/root/projects/leanstore/fs.sqlite")) {}
+        dblite(std::make_unique<SQLiteDB>("/home/khoa/projects/leanstore/fs.sqlite")) {}
 
   ~LeanStoreFUSE() = default;
 
@@ -302,7 +302,7 @@ int main(int argc, char **argv) {
   FLAGS_worker_count   = 1;
   FLAGS_bm_virtual_gb  = 128;
   FLAGS_bm_physical_gb = 32;
-  FLAGS_db_path        = "/dev/nullb0";
+  FLAGS_db_path        = "/dev/nvme0n1";
   auto db              = std::make_unique<leanstore::LeanStore>();
   auto fs              = LeanStoreFUSE(db.get());
   LeanStoreFUSE::obj   = &fs;
