@@ -18,7 +18,8 @@
 
 namespace fs = std::filesystem;
 
-#define BLOCK_DEVICE "/dev/nullb0"
+#define BLOCK_DEVICE "/dev/nvme0n1"
+#define EXMAP_DEVICE "/dev/exmap0"
 #define CHECK_EXTENT_PAGE_STATE(expected_state, start_pid, pg_cnt)             \
   ({                                                                           \
     EXPECT_EQ(buffer_->GetPageState(start_pid).LockState(), (expected_state)); \
@@ -55,6 +56,7 @@ class BaseTest : public ::testing::Test {
   void SetupTestFile(bool setup_fd = false) {
     // Reset DB file for testing
     FLAGS_db_path = BLOCK_DEVICE;
+    FLAGS_exmap_path = EXMAP_DEVICE;
     if (setup_fd) {
       test_file_fd_ = open(FLAGS_db_path.c_str(), O_RDWR | O_DIRECT, S_IRWXU);
       assert(test_file_fd_ > 0);

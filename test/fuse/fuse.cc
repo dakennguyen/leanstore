@@ -316,6 +316,7 @@ static struct fuse_operations fs_oper = {
 
 int main(int argc, char **argv) {
   // Initialize FUSE filesystem
+  FLAGS_exmap_path     = "/dev/exmap0";
   FLAGS_worker_count   = 1;
   FLAGS_bm_virtual_gb  = 128;
   FLAGS_bm_physical_gb = 32;
