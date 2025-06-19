@@ -1,6 +1,7 @@
 #define FUSE_USE_VERSION 35
 
 #include "benchmark/adapters/leanstore_adapter.h"
+#include "benchmark/adapters/sql_databases.h"
 #include "benchmark/fuse/schema.h"
 #include "leanstore/leanstore.h"
 
@@ -11,22 +12,36 @@ struct LeanStoreFUSE {
   static LeanStoreFUSE *obj;
   leanstore::LeanStore *db;
   std::unique_ptr<LeanStoreAdapter<leanstore::fuse::FileRelation>> adapter;
+  std::unique_ptr<SQLiteDB> dblite;
 
   explicit LeanStoreFUSE(leanstore::LeanStore *db)
-      : db(db), adapter(std::make_unique<LeanStoreAdapter<leanstore::fuse::FileRelation>>(*db)) {}
+      : db(db),
+        adapter(std::make_unique<LeanStoreAdapter<leanstore::fuse::FileRelation>>(*db)),
+        dblite(std::make_unique<SQLiteDB>("/root/projects/leanstore/fs.sqlite")) {}
 
   ~LeanStoreFUSE() = default;
 
   static auto GetAttr(const char *path, struct stat *stbuf) -> int {
     std::string filename = path;
-    int res              = 0;
+    int ino              = 0;
+    obj->dblite->ui << "SELECT target_inode_id, file_name FROM dentry WHERE file_path = ?" << filename >>
+      [&](int target_inode_id, const std::string &file_name) {
+        if (file_name != "..") { ino = target_inode_id; }
+      };
+    if (ino == 0) { return -ENOENT; }
+
+    int res = 0;
     memset(stbuf, 0, sizeof(struct stat));
 
     stbuf->st_uid   = getuid();
     stbuf->st_gid   = getgid();
     stbuf->st_atime = stbuf->st_mtime = stbuf->st_ctime = time(nullptr);
 
-    if (filename == "/") {
+    bool is_directory = false;
+    obj->dblite->ui << "SELECT is_directory FROM inode WHERE id = ?" << ino >>
+      [&](bool is_dir) { is_directory = is_dir; };
+
+    if (is_directory) {
       stbuf->st_mode  = S_IFDIR | 0777;
       stbuf->st_nlink = 2;
     } else {
@@ -89,8 +104,12 @@ struct LeanStoreFUSE {
         return;
       }
 
+      // for (int i = 0; i < 32; i++) {
+      //   std::cout << "DEBUG sha2_val[" << i << "]: " << (int)bh->sha2_val[i] << std::endl;
+      // }
+
       obj->db->LoadBlob(
-        bh, [&](std::span<const u8> content) { std::memcpy(buf, content.data() + offset, size); }, false);
+        bh, [&](std::span<const u8> content) { std::memcpy(buf, content.data(), content.size()); }, size, offset);
 
       ret = std::min(size, bh->blob_size - offset);
       obj->db->CommitTransaction();
@@ -104,6 +123,18 @@ struct LeanStoreFUSE {
     size_t pos    = str_path.find_last_of('/');
     auto parent   = str_path.substr(0, pos);
     auto filename = str_path.substr(pos + 1);
+
+    int parent_inode_id = 0;
+    int ino;
+    obj->dblite->ui << "SELECT target_inode_id FROM dentry WHERE file_path = ?" << parent >>
+      [&](int target_inode_id) { parent_inode_id = target_inode_id; };
+    if (parent_inode_id == 0) { return -ENOENT; }
+
+    obj->dblite->ui << "INSERT INTO inode (size, is_directory) VALUES (0, 0);";
+    obj->dblite->ui << "SELECT last_insert_rowid();" >> [&](int inode_id) { ino = inode_id; };
+    obj->dblite->ui << fmt::format(
+      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('{}', '{}', {}, {});",
+      str_path, filename, parent_inode_id, ino);
 
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
       obj->db->StartTransaction();
@@ -130,46 +161,59 @@ struct LeanStoreFUSE {
 
   static auto Flush(const char * /*unused*/, struct fuse_file_info * /*unused*/) -> int { return 0; };
 
-  // static auto MkDir(const char *path, mode_t /*unused*/) -> int {
-  //   std::string str_path(path);
-  //   size_t pos    = str_path.find_last_of('/');
-  //   auto parent   = str_path.substr(0, pos);
-  //   auto filename = str_path.substr(pos + 1);
-  //
-  //   int parent_inode_id = 0;
-  //   int ino;
-  //   obj->dblite->ui << "SELECT target_inode_id FROM dentry WHERE file_path = ?" << parent >>
-  //     [&](int target_inode_id) { parent_inode_id = target_inode_id; };
-  //   if (parent_inode_id == 0) { return -ENOENT; }
-  //   obj->dblite->ui << "INSERT INTO inode (size, is_directory) VALUES (0, 1);";
-  //   obj->dblite->ui << "SELECT last_insert_rowid();" >> [&](int inode_id) { ino = inode_id; };
-  //
-  //   obj->dblite->ui << fmt::format(
-  //     "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('{}', '{}', {}, {});",
-  //     str_path, filename, parent_inode_id, ino);
-  //   obj->dblite->ui << fmt::format(
-  //     "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('', '.', {}, {});", ino,
-  //     ino);
-  //   obj->dblite->ui << fmt::format(
-  //     "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('', '..', {}, {});", ino,
-  //     parent_inode_id);
-  //
-  //   return 0;
-  // };
+  static auto MkDir(const char *path, mode_t /*unused*/) -> int {
+    std::string str_path(path);
+    size_t pos    = str_path.find_last_of('/');
+    auto parent   = str_path.substr(0, pos);
+    auto filename = str_path.substr(pos + 1);
 
-  static auto ReadDir([[maybe_unused]] const char *path, void *buf, fuse_fill_dir_t filler, off_t /*unused*/,
+    int parent_inode_id = 0;
+    int ino;
+    obj->dblite->ui << "SELECT target_inode_id FROM dentry WHERE file_path = ?" << parent >>
+      [&](int target_inode_id) { parent_inode_id = target_inode_id; };
+    if (parent_inode_id == 0) { return -ENOENT; }
+    obj->dblite->ui << "INSERT INTO inode (size, is_directory) VALUES (0, 1);";
+    obj->dblite->ui << "SELECT last_insert_rowid();" >> [&](int inode_id) { ino = inode_id; };
+
+    obj->dblite->ui << fmt::format(
+      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('{}', '{}', {}, {});",
+      str_path, filename, parent_inode_id, ino);
+    obj->dblite->ui << fmt::format(
+      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('', '.', {}, {});", ino,
+      ino);
+    obj->dblite->ui << fmt::format(
+      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('', '..', {}, {});", ino,
+      parent_inode_id);
+
+    return 0;
+  };
+
+  static auto ReadDir(const char *path, void *buf, fuse_fill_dir_t filler, off_t /*unused*/,
                       struct fuse_file_info * /*unused*/) -> int {
-    filler(buf, ".", nullptr, 0);
-    filler(buf, "..", nullptr, 0);
-    filler(buf, "blob", nullptr, 0);
-    filler(buf, "blob2", nullptr, 0);
-    filler(buf, "hello", nullptr, 0);
+    int parent_inode_id = 0;
+    obj->dblite->ui << "SELECT target_inode_id FROM dentry WHERE file_path = ?" << path >>
+      [&](int target_inode_id) { parent_inode_id = target_inode_id; };
+    if (parent_inode_id == 0) { return -ENOENT; }
+
+    obj->dblite->ui
+        << "SELECT file_name FROM dentry JOIN inode ON dentry.target_inode_id = inode.id WHERE parent_inode_id = ?;"
+        << parent_inode_id >>
+      [&](const std::string &file_name) { filler(buf, strdup(file_name.c_str()), nullptr, 0); };
 
     return 0;
   }
 
   static auto Unlink(const char *path) -> int {
     std::string filename = path;
+    int ino              = 0;
+    obj->dblite->ui << "SELECT target_inode_id, file_name FROM dentry WHERE file_path = ?" << filename >>
+      [&](int target_inode_id, const std::string &file_name) {
+        if (file_name != "..") { ino = target_inode_id; }
+      };
+    if (ino == 0) { return -ENOENT; }
+    obj->dblite->ui << "PRAGMA foreign_keys = ON;";
+    obj->dblite->ui << "DELETE FROM inode WHERE id = ?;" << ino;
+
     int ret = 0;
 
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
@@ -223,7 +267,7 @@ struct LeanStoreFUSE {
         size_t payload_size = std::max(bh->blob_size, offset + size);
         u8 payload[payload_size];
         obj->db->LoadBlob(
-          bh, [&payload](std::span<const u8> content) { std::memcpy(payload, content.data(), content.size()); });
+          bh, [&payload](std::span<const u8> content) { std::memcpy(payload, content.data(), content.size()); }, 0);
 
         // Modify
         std::memcpy(payload + offset, buf, size);
@@ -253,20 +297,21 @@ struct LeanStoreFUSE {
 LeanStoreFUSE *LeanStoreFUSE::obj;
 
 static struct fuse_operations fs_oper = {
-  .getattr = LeanStoreFUSE::GetAttr,
+  .getattr  = LeanStoreFUSE::GetAttr,
+  .mkdir    = LeanStoreFUSE::MkDir,
   .unlink   = LeanStoreFUSE::Unlink,
-  .open    = LeanStoreFUSE::Open,
-  .read    = LeanStoreFUSE::Read,
+  .chown    = LeanStoreFUSE::Chown,
+  .truncate = LeanStoreFUSE::Truncate,
+  .open     = LeanStoreFUSE::Open,
+  .read     = LeanStoreFUSE::Read,
   .write    = LeanStoreFUSE::Write,
-  .readdir = LeanStoreFUSE::ReadDir,
-  .create  = LeanStoreFUSE::Create,
-  // .chown    = LeanStoreFUSE::Chown,
-  // .truncate = LeanStoreFUSE::Truncate,
-  // .access  = LeanStoreFUSE::Access,
+  .flush    = LeanStoreFUSE::Flush,
+  .fsync    = LeanStoreFUSE::Fsync,
+  .getxattr = LeanStoreFUSE::Getxattr,
+  .readdir  = LeanStoreFUSE::ReadDir,
+  .access   = LeanStoreFUSE::Access,
+  .create   = LeanStoreFUSE::Create,
   .utimens  = LeanStoreFUSE::Utimens,
-  // .fsync    = LeanStoreFUSE::Fsync,
-  // .flush    = LeanStoreFUSE::Flush,
-  // .getxattr = LeanStoreFUSE::Getxattr,
 };
 
 /**
@@ -305,28 +350,72 @@ auto main(int argc, char **argv) -> int {
   auto fs                       = LeanStoreFUSE(db.get());
   LeanStoreFUSE::obj            = &fs;
 
+  fs.dblite->StartTransaction();
+  fs.dblite->ui << "DROP TABLE IF EXISTS INODE;";
+  fs.dblite->ui << "DROP TABLE IF EXISTS DENTRY;";
+  fs.dblite->ui << "CREATE TABLE inode ( id INTEGER PRIMARY KEY, size INTEGER NOT NULL, is_directory BOOLEAN NOT NULL "
+                   "CHECK (is_directory IN (0, 1)));";
+  fs.dblite->ui << "CREATE TABLE dentry ( file_path TEXT NOT NULL, file_name TEXT NOT NULL, parent_inode_id INTEGER "
+                   "NOT NULL, target_inode_id INTEGER NOT NULL, FOREIGN KEY (parent_inode_id) REFERENCES inode(id) ON "
+                   "DELETE CASCADE, "
+                   "FOREIGN KEY (target_inode_id) REFERENCES inode(id) ON DELETE CASCADE, PRIMARY KEY (file_name, "
+                   "parent_inode_id));";
+  fs.dblite->CommitTransaction();
+
   // Initialize temp BLOB
   db->worker_pool.ScheduleSyncJob(0, [&]() {
     db->StartTransaction();
+    fs.dblite->StartTransaction();
 
+    auto root_inode_id = 1;
+    fs.dblite->ui << fmt::format("INSERT INTO inode (id, size, is_directory) VALUES ({}, 0, 1);", root_inode_id);
+    fs.dblite->ui << fmt::format(
+      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('/', '.', {}, {});",
+      root_inode_id, root_inode_id);
+    fs.dblite->ui << fmt::format(
+      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('', '..', {}, {});",
+      root_inode_id, root_inode_id);
+
+    fs.dblite->ui << "INSERT INTO inode (id, size, is_directory) VALUES (2, 0, 0);";
+    fs.dblite->ui
+      << "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('/blob', 'blob', 1, 2);";
     u8 payload[12288];
     for (auto idx = 0; idx < 12288; idx++) { payload[idx] = 97 + idx % 10; }
     auto blob_rep = db->CreateNewBlob({payload, 12288}, {}, false);
     fs.adapter->InsertRawPayload({"/blob"}, blob_rep);
 
+    fs.dblite->ui << "INSERT INTO inode (id, size, is_directory) VALUES (3, 0, 0);";
+    fs.dblite->ui << "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('/blob2', "
+                     "'blob2', 1, 3);";
     u8 payload2[4096];
     for (unsigned char &byte : payload2) { byte = 124; }
     auto blob_rep2 = db->CreateNewBlob({payload2, 4096}, {}, false);
     fs.adapter->InsertRawPayload({"/blob2"}, blob_rep2);
 
+    fs.dblite->ui << "INSERT INTO inode (id, size, is_directory) VALUES (4, 0, 0);";
+    fs.dblite->ui << "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('/hello', "
+                     "'hello', 1, 4);";
     strcpy((char *)payload, "Hello World!");
     blob_rep = db->CreateNewBlob({payload, strlen((char *)payload)}, {}, false);
     fs.adapter->InsertRawPayload({"/hello"}, blob_rep);
 
+    fs.dblite->ui << fmt::format("INSERT INTO inode (id, size, is_directory) VALUES ({}, 0, 1);", 5);
+    fs.dblite->ui << fmt::format(
+      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('/dir1', 'dir1', {}, {});",
+      1, 5);
+    fs.dblite->ui << fmt::format(
+      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('', '.', {}, {});", 5, 5);
+    fs.dblite->ui << fmt::format(
+      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('', '..', {}, {});", 5, 1);
+
+    fs.dblite->ui << "INSERT INTO inode (id, size, is_directory) VALUES (6, 0, 0);";
+    fs.dblite->ui << "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES "
+                     "('/dir1/tmp.txt', 'tmp.txt', 5, 6);";
     strcpy((char *)payload, "Temporary file in dir1");
     blob_rep = db->CreateNewBlob({payload, strlen((char *)payload)}, {}, false);
     fs.adapter->InsertRawPayload({"/dir1/tmp.txt"}, blob_rep);
 
+    fs.dblite->CommitTransaction();
     db->CommitTransaction();
   });
 

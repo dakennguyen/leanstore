@@ -276,7 +276,7 @@ TYPED_TEST(TestBlobManager, GrowExistingBlob) {
 
   // Validate the content of the grow blob
   {
-    auto guard = storage::blob::AliasingGuard(this->buffer_.get(), *grow_blob, grow_blob->blob_size);
+    auto guard = storage::blob::AliasingGuard(this->buffer_.get(), *grow_blob, grow_blob->blob_size, 0);
     EXPECT_EQ(std::memcmp(guard.GetPtr(), this->random_blob_[0], this->BLOB_SIZE), 0);
     EXPECT_EQ(std::memcmp(guard.GetPtr() + this->BLOB_SIZE, this->random_blob_[1], this->BLOB_SIZE), 0);
   }

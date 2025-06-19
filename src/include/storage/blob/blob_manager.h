@@ -30,7 +30,7 @@ class BlobManager {
   void RemoveBlob(BlobState *blob);
 
   // Blob Load/Unload utilities
-  void LoadBlob(const BlobState *blob, u64 required_load_size, const BlobCallbackFunc &cb);
+  void LoadBlob(const BlobState *blob, u64 required_load_size, const BlobCallbackFunc &cb, off_t offset = 0);
   void UnloadAllBlobs();
 
   // Comparator utilities
@@ -38,7 +38,7 @@ class BlobManager {
   auto BlobStateComparison(const void *a, const void *b) -> int;
 
  private:
-  void LoadBlobContent(const BlobState *blob, u64 required_load_size);
+  void LoadBlobContent(const BlobState *blob, u64 required_load_size, off_t offset = 0);
 
   // Move data utilities
   auto WriteNewDataToLastExtent(transaction::Transaction &txn, std::span<const u8> payload, BlobState *blob) -> u64;

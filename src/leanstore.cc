@@ -363,13 +363,9 @@ auto LeanStore::CreateNewBlob(std::span<const u8> blob_payload, BlobState *prev_
   return std::span{reinterpret_cast<u8 *>(blob_hd), blob_hd->MallocSize()};
 }
 
-void LeanStore::LoadBlob(const BlobState *blob_t, const storage::blob::BlobCallbackFunc &read_cb, bool partial_load) {
+void LeanStore::LoadBlob(const BlobState *blob_t, const storage::blob::BlobCallbackFunc &read_cb, u64 size, off_t offset) {
   Ensure(FLAGS_blob_enable);
-  if (partial_load) {
-    blob_manager->LoadBlob(blob_t, PAGE_SIZE, read_cb);
-  } else {
-    blob_manager->LoadBlob(blob_t, blob_t->blob_size, read_cb);
-  }
+  blob_manager->LoadBlob(blob_t, size, read_cb, offset);
 }
 
 void LeanStore::RemoveBlob(BlobState *blob_t) {

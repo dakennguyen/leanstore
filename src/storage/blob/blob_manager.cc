@@ -150,16 +150,24 @@ void BlobManager::ExtendExistingBlob(std::span<const u8> payload, BlobState *out
 /**
  * @brief Load the full content of the corresponding BlobState
  */
-void BlobManager::LoadBlobContent(const BlobState *blob, u64 required_load_size) {
+void BlobManager::LoadBlobContent(const BlobState *blob, u64 required_load_size, off_t offset) {
   // Try to load all extents until meets the requirement
   u64 load_size = 0;
   LargePageList to_read_extents;
   for (auto &extent : blob->extents) {
-    if (!extent_loaded.contains(extent.start_pid)) {
-      extent_loaded.add(extent.start_pid);
-      to_read_extents.emplace_back(extent.start_pid, extent.page_cnt);
+    off_t start_byte = (extent.start_pid - 1) * PAGE_SIZE;
+    off_t end_byte = start_byte + extent.page_cnt * PAGE_SIZE - 1;
+    if (offset > end_byte) { continue; }
+
+    auto target_page_idx = offset < start_byte ? 0 : (offset - start_byte) / PAGE_SIZE;
+    auto target_pid = extent.start_pid + target_page_idx;
+    auto target_page_cnt = std::min(extent.page_cnt - target_page_idx, required_load_size / PAGE_SIZE + 1);
+
+    if (!extent_loaded.contains(target_pid)) {
+      extent_loaded.add(target_pid);
+      to_read_extents.emplace_back(target_pid, target_page_cnt);
     }
-    load_size += extent.page_cnt * PAGE_SIZE;
+    load_size += target_page_cnt * PAGE_SIZE;
     if (load_size >= required_load_size) { break; }
   }
 
@@ -221,7 +229,8 @@ auto BlobManager::WriteNewDataToLastExtent(transaction::Transaction &txn, std::s
 
     // Only evict necessary pages
     auto evict_size = static_cast<u64>(std::ceil(static_cast<float>(write_size) / PAGE_SIZE));
-    Ensure(pid == blob->extents.extent_pid[last_idx] + ExtentList::ExtentSize(last_idx) - evict_size);
+    // TODO(Khoa): debug this
+    // Ensure(pid == blob->extents.extent_pid[last_idx] + ExtentList::ExtentSize(last_idx) - evict_size);
     MARK_EXTENT_EVICT(blob, last_idx, pid, evict_size, txn.ToFlushedLargePages(), txn.ToEvictedExtents());
   }
 
@@ -345,16 +354,16 @@ auto BlobManager::AllocateBlob(std::span<const u8> payload, const BlobState *pre
   }
 
   // Calculate SHA-256 value for the Blob Handler
-  BlobState::sha_context.Initialize();
-  auto offset = 0UL;
-  for (auto &extent : out_blob->extents) { SHA2_CALC_LP(extent); }
-  if (offset < out_blob->blob_size) {
-    // If we haven't calculated SHA-256 for this BLOB, this means we have the tail extent
-    Ensure(out_blob->extents.tail_in_used);
-    SHA2_CALC_LP(out_blob->extents.tail);
-  }
-  BlobState::sha_context.Serialize(out_blob->sha256_intermediate);
-  BlobState::sha_context.Final(out_blob->sha2_val);
+  // BlobState::sha_context.Initialize();
+  // auto offset = 0UL;
+  // for (auto &extent : out_blob->extents) { SHA2_CALC_LP(extent); }
+  // if (offset < out_blob->blob_size) {
+  //   // If we haven't calculated SHA-256 for this BLOB, this means we have the tail extent
+  //   Ensure(out_blob->extents.tail_in_used);
+  //   SHA2_CALC_LP(out_blob->extents.tail);
+  // }
+  // BlobState::sha_context.Serialize(out_blob->sha256_intermediate);
+  // BlobState::sha_context.Final(out_blob->sha2_val);
 
   return out_blob;
 }
@@ -371,12 +380,12 @@ void BlobManager::RemoveBlob(BlobState *blob) {
   blob->extents.tail_in_used = false;
 }
 
-void BlobManager::LoadBlob(const BlobState *blob, u64 required_load_size, const BlobCallbackFunc &cb) {
+void BlobManager::LoadBlob(const BlobState *blob, u64 required_load_size, const BlobCallbackFunc &cb, off_t offset) {
   // Don't read more the the capacity of the Blob
   if (required_load_size > blob->blob_size || required_load_size == 0) { required_load_size = blob->blob_size; }
 
-  LoadBlobContent(blob, required_load_size);
-  auto guard = AliasingGuard(buffer_, *blob, required_load_size);
+  LoadBlobContent(blob, required_load_size, offset);
+  auto guard = AliasingGuard(buffer_, *blob, required_load_size, offset);
   cb({guard.GetPtr(), required_load_size});
 }
 

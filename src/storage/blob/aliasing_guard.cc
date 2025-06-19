@@ -3,7 +3,7 @@
 
 namespace leanstore::storage::blob {
 
-AliasingGuard::AliasingGuard(buffer::BufferManager *buffer, const BlobState &blob, u64 required_load_size)
+AliasingGuard::AliasingGuard(buffer::BufferManager *buffer, const BlobState &blob, u64 required_load_size, off_t offset)
     : buffer_(buffer) {
   // FLAGS_blob_normal_buffer_pool: 2nd extra overhead
   if (FLAGS_blob_normal_buffer_pool) {
@@ -34,15 +34,26 @@ AliasingGuard::AliasingGuard(buffer::BufferManager *buffer, const BlobState &blo
   // Prepare the aliasing params
   u64 alias_size = 0;
   size_t idx     = 0;
+  size_t count   = 0;
   for (; (idx < blob.extents.NumberOfExtents()) && (alias_size < required_load_size); idx++) {
-    auto pg_cnt                                                          = ExtentList::ExtentSize(idx);
-    buffer->exmap_interface_[LeanStore::worker_thread_id]->iov[idx].page = blob.extents.extent_pid[idx];
-    buffer->exmap_interface_[LeanStore::worker_thread_id]->iov[idx].len  = pg_cnt;
-    alias_size += pg_cnt * PAGE_SIZE;
+    auto extent      = blob.extents[idx];
+    off_t start_byte = (extent.start_pid - 1) * PAGE_SIZE;
+    off_t end_byte   = start_byte + extent.page_cnt * PAGE_SIZE - 1;
+    if (offset > end_byte) { continue; }
+
+    auto target_page_idx = offset < start_byte ? 0 : (offset - start_byte) / PAGE_SIZE;
+    auto target_pid      = extent.start_pid + target_page_idx;
+    auto target_page_cnt = std::min(extent.page_cnt - target_page_idx, required_load_size / PAGE_SIZE + 1);
+
+    buffer->exmap_interface_[LeanStore::worker_thread_id]->iov[count].page = target_pid;
+    buffer->exmap_interface_[LeanStore::worker_thread_id]->iov[count].len  = target_page_cnt;
+    count++;
+    alias_size += target_page_cnt * PAGE_SIZE;
   }
   if (blob.extents.tail_in_used && alias_size < required_load_size) {
-    buffer->exmap_interface_[LeanStore::worker_thread_id]->iov[idx - 1].page = blob.extents.tail.start_pid;
-    buffer->exmap_interface_[LeanStore::worker_thread_id]->iov[idx - 1].len  = blob.extents.tail.page_cnt;
+    buffer->exmap_interface_[LeanStore::worker_thread_id]->iov[count].page = blob.extents.tail.start_pid;
+    buffer->exmap_interface_[LeanStore::worker_thread_id]->iov[count].len  = blob.extents.tail.page_cnt;
+    count++;
     alias_size += blob.extents.tail.page_cnt * PAGE_SIZE;
   }
   Ensure(alias_size >= required_load_size);
@@ -50,13 +61,16 @@ AliasingGuard::AliasingGuard(buffer::BufferManager *buffer, const BlobState &blo
   // Aliasing the whole blob
   struct exmap_action_params params = {
     .interface = static_cast<u16>(LeanStore::worker_thread_id),
-    .iov_len   = static_cast<u16>(idx),
+    .iov_len   = static_cast<u16>(count),
     .opcode    = static_cast<u16>(EXMAP_OP_SHADOW),
     .page_id   = buffer->ToPID(ptr_),
   };
 
   // Execute Exmap SHADOW operation
   Ensure(ioctl(buffer->exmapfd_, EXMAP_IOCTL_ACTION, &params) >= 0);
+
+  // Point to the correct position within the first page
+  ptr_ = ptr_ + (offset % PAGE_SIZE);
 }
 
 AliasingGuard::~AliasingGuard() {

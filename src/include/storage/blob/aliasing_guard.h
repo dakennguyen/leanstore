@@ -13,7 +13,7 @@ namespace leanstore::storage::blob {
 
 // RAII BLOB aliasing guard
 struct AliasingGuard {
-  AliasingGuard(buffer::BufferManager *buffer, const BlobState &blob, u64 required_load_size);
+  AliasingGuard(buffer::BufferManager *buffer, const BlobState &blob, u64 required_load_size, off_t offset);
   ~AliasingGuard();
   auto GetPtr() -> u8 *;
 
