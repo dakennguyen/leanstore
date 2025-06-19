@@ -14,8 +14,30 @@ Install dependencies:
 
 ### Third-party libraries
 
-**Databases**: `sudo apt-get install libwiredtiger-dev libsqlite3-dev libmysqlcppconn-dev libpq-dev libfuse-dev`
+**Databases**: `sudo apt-get install libwiredtiger-dev libsqlite3-dev libmysqlcppconn-dev libpq-dev libfuse-dev librocksdb-dev`
 
 ## How to build
 
 `mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && make -j`
+
+## Troubleshoot
+
+Install g++ 13:
+
+    wget https://gcc.gnu.org/pub/gcc/releases/gcc-13.3.0/gcc-13.3.0.tar.gz
+    tar -xvzf gcc-13.3.0.tar.gz
+    cd gcc-13.3.0
+    ./contrib/download_prerequisites
+    ./configure --disable-multilib --enable-languages=c,c++
+    make -j3
+    sudo make install
+    sudo update-alternatives --install /usr/bin/gcc gcc /usr/local/bin/gcc 60 --slave /usr/bin/g++ g++ /usr/local/bin/g++
+
+Missing GLIBCXX_3.4.31:
+
+    export LD_LIBRARY_PATH=/usr/local/lib64
+
+    # To confirm
+    find /usr/local -name libstdc++.so*
+    strings /usr/local/lib64/libstdc++.so.6 | grep GLIBCXX_3.4.31
+
