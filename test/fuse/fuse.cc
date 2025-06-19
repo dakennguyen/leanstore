@@ -296,24 +296,6 @@ struct LeanStoreFUSE {
 
 LeanStoreFUSE *LeanStoreFUSE::obj;
 
-static struct fuse_operations fs_oper = {
-  .getattr  = LeanStoreFUSE::GetAttr,
-  .mkdir    = LeanStoreFUSE::MkDir,
-  .unlink   = LeanStoreFUSE::Unlink,
-  .chown    = LeanStoreFUSE::Chown,
-  .truncate = LeanStoreFUSE::Truncate,
-  .open     = LeanStoreFUSE::Open,
-  .read     = LeanStoreFUSE::Read,
-  .write    = LeanStoreFUSE::Write,
-  .flush    = LeanStoreFUSE::Flush,
-  .fsync    = LeanStoreFUSE::Fsync,
-  .getxattr = LeanStoreFUSE::Getxattr,
-  .readdir  = LeanStoreFUSE::ReadDir,
-  .access   = LeanStoreFUSE::Access,
-  .create   = LeanStoreFUSE::Create,
-  .utimens  = LeanStoreFUSE::Utimens,
-};
-
 int main(int argc, char **argv) {
   // Initialize FUSE filesystem
   FLAGS_exmap_path     = "/dev/exmap0";
@@ -393,6 +375,23 @@ int main(int argc, char **argv) {
     fs.dblite->CommitTransaction();
     db->CommitTransaction();
   });
+
+  static struct fuse_operations fs_oper;
+  fs_oper.getattr  = LeanStoreFUSE::GetAttr;
+  fs_oper.mkdir    = LeanStoreFUSE::MkDir;
+  fs_oper.unlink   = LeanStoreFUSE::Unlink;
+  fs_oper.chown    = LeanStoreFUSE::Chown;
+  fs_oper.truncate = LeanStoreFUSE::Truncate;
+  fs_oper.open     = LeanStoreFUSE::Open;
+  fs_oper.read     = LeanStoreFUSE::Read;
+  fs_oper.write    = LeanStoreFUSE::Write;
+  fs_oper.flush    = LeanStoreFUSE::Flush;
+  fs_oper.fsync    = LeanStoreFUSE::Fsync;
+  fs_oper.getxattr = LeanStoreFUSE::Getxattr;
+  fs_oper.readdir  = LeanStoreFUSE::ReadDir;
+  fs_oper.access   = LeanStoreFUSE::Access;
+  fs_oper.create   = LeanStoreFUSE::Create;
+  fs_oper.utimens  = LeanStoreFUSE::Utimens;
 
   return fuse_main(argc, argv, &fs_oper, nullptr);
 }
