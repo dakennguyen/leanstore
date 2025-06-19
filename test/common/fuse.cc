@@ -127,13 +127,16 @@ LeanStoreFUSE *LeanStoreFUSE::obj;
  */
 auto main(int argc, char **argv) -> int {
   // Initialize FUSE filesystem
-  FLAGS_worker_count   = 1;
-  FLAGS_bm_virtual_gb  = 128;
-  FLAGS_bm_physical_gb = 32;
-  FLAGS_db_path        = "/dev/nvme1n1";
-  auto db              = std::make_unique<leanstore::LeanStore>();
-  auto fs              = LeanStoreFUSE(db.get());
-  LeanStoreFUSE::obj   = &fs;
+  FLAGS_worker_count            = 1;
+  FLAGS_bm_virtual_gb           = 128;
+  FLAGS_bm_physical_gb          = 32;
+  FLAGS_db_path                 = "/dev/nvme0n1";
+  FLAGS_wal_stealing_group_size = 1;
+  FLAGS_txn_commit_group_size   = 1;
+  FLAGS_blob_enable             = true;
+  auto db                       = std::make_unique<leanstore::LeanStore>();
+  auto fs                       = LeanStoreFUSE(db.get());
+  LeanStoreFUSE::obj            = &fs;
 
   // Initialize temp BLOB
   db->worker_pool.ScheduleSyncJob(0, [&]() {

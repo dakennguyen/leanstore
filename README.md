@@ -18,4 +18,4 @@ Install dependencies:
 
 ## How to build
 
-`mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && make -j`
+`mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENABLE_TESTING=ON .. && make -j`
