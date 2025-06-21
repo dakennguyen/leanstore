@@ -76,8 +76,8 @@ struct LeanStoreFUSE {
         stbuf->st_mode  = S_IFDIR | 0777;
         stbuf->st_nlink = 2;
       } else {
-        uint8_t blob_rep[leanstore::BlobState::MAX_MALLOC_SIZE];
-        uint64_t blob_rep_size = 0;
+        u8 blob_rep[leanstore::BlobState::MAX_MALLOC_SIZE];
+        u64 blob_rep_size = 0;
 
         auto file_path = FilePath(path);
         auto file_key  = reinterpret_cast<leanstore::fuse::FileRelation::Key &>(file_path);
@@ -221,7 +221,7 @@ struct LeanStoreFUSE {
       obj->leanfs->RemoveInode(ino);
 
       // Remove blob
-      uint8_t blob_rep[leanstore::BlobState::MAX_MALLOC_SIZE];
+      u8 blob_rep[leanstore::BlobState::MAX_MALLOC_SIZE];
 
       auto file_path = FilePath(path);
       auto file_key  = reinterpret_cast<leanstore::fuse::FileRelation::Key &>(file_path);
@@ -248,8 +248,8 @@ struct LeanStoreFUSE {
 
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
       obj->db->StartTransaction();
-      uint8_t blob_rep[leanstore::BlobState::MAX_MALLOC_SIZE];
-      uint64_t blob_rep_size = 0;
+      u8 blob_rep[leanstore::BlobState::MAX_MALLOC_SIZE];
+      u64 blob_rep_size = 0;
 
       auto file_path = FilePath(path);
       auto file_key  = reinterpret_cast<leanstore::fuse::FileRelation::Key &>(file_path);
@@ -290,11 +290,11 @@ struct LeanStoreFUSE {
       obj->db->StartTransaction();
 
       // Look up
-      uint8_t blob_rep[leanstore::BlobState::MAX_MALLOC_SIZE];
-      uint64_t blob_rep_size = 0;
-      auto file_path         = FilePath(path);
-      auto file_key          = reinterpret_cast<leanstore::fuse::FileRelation::Key &>(file_path);
-      auto found             = obj->adapter->LookUp(file_key, [&](const auto &rec) {
+      u8 blob_rep[leanstore::BlobState::MAX_MALLOC_SIZE];
+      u64 blob_rep_size = 0;
+      auto file_path    = FilePath(path);
+      auto file_key     = reinterpret_cast<leanstore::fuse::FileRelation::Key &>(file_path);
+      auto found        = obj->adapter->LookUp(file_key, [&](const auto &rec) {
         blob_rep_size = rec.PayloadSize();
         std::memcpy(blob_rep, const_cast<leanstore::fuse::FileRelation &>(rec).file_meta.Data(), rec.PayloadSize());
       });
@@ -306,20 +306,23 @@ struct LeanStoreFUSE {
       auto bh = reinterpret_cast<leanstore::BlobState *>(blob_rep);
 
       std::span<const u8> span_bh2;
-      if (bh->blob_size == 0 || (uint64_t)offset < bh->blob_size) {
+      if (bh->blob_size == 0 || (u64)offset < bh->blob_size) {
         size_t payload_size = std::max(bh->blob_size, offset + size);
-        u8 payload[payload_size];
-        obj->db->LoadBlob(
-          bh, [&payload](std::span<const u8> content) { std::memcpy(payload, content.data(), content.size()); }, 0);
+        auto payload = std::make_unique<u8[]>(payload_size);
+
+        obj->adapter->LoadBlob(
+          blob_rep,
+          [&payload](std::span<const u8> content) { std::memcpy(payload.get(), content.data(), content.size()); }, 0);
 
         // Modify
-        std::memcpy(payload + offset, buf, size);
-        span_bh2 = obj->db->CreateNewBlob({payload, payload_size}, {}, false);
+        std::memcpy(payload.get() + offset, buf, size);
+        std::span<u8> payload_span(payload.get(), payload_size);
+        span_bh2 = obj->adapter->RegisterBlob(payload_span, {}, false);
       } else {
         // Append
         u8 payload[size];
         std::memcpy(payload, buf, size);
-        span_bh2 = obj->db->CreateNewBlob({payload, size}, bh, true);
+        span_bh2 = obj->adapter->RegisterBlob({payload, size}, blob_rep, true);
       }
 
       // Update
