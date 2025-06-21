@@ -2,7 +2,7 @@
 filename=rand_write_test_file
 rw=randwrite
 bs=128k
-size=1g
+size=30m
 ioengine=libaio
 direct=1
 numjobs=1
