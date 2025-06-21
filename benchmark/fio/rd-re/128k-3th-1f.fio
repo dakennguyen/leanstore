@@ -1,0 +1,10 @@
+[rand-read]
+filename=seq_read_test_file
+rw=randread
+bs=128k
+size=1g
+ioengine=libaio
+direct=1
+numjobs=3
+runtime=0
+time_based=0

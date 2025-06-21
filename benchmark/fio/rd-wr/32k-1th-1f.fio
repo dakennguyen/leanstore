@@ -1,0 +1,9 @@
+[rand-write]
+filename=rand_write_test_file
+rw=randwrite
+bs=32k
+size=1g
+ioengine=libaio
+direct=1
+numjobs=1
+iodepth=1

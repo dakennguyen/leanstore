@@ -1,0 +1,9 @@
+[seq-write]
+filename=seq_write_test_file
+rw=write
+bs=32k
+size=1g
+ioengine=libaio
+direct=1
+numjobs=1
+iodepth=1
