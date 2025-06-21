@@ -20,8 +20,6 @@ struct LeanFS {
   AdapterType<Inode> inodes;
   AdapterType<Dentry> dentries;
 
-  void TestMethod(Integer i_id);
-
   inline static thread_local Integer inode_id_counter = 0;
 
   // Constructor
@@ -29,6 +27,11 @@ struct LeanFS {
   LeanFS(Params &&...params)
       : inodes(AdapterType<Inode>(std::forward<Params>(params)...)),
         dentries(AdapterType<Dentry>(std::forward<Params>(params)...)) {}
+
+  // Methods
+  auto AddInode(const Inode &record) -> Integer;
+  auto RemoveInode(Integer ino_id) -> void;
+
 };
 
 }  // namespace leanstore::fuse

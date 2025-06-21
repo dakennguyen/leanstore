@@ -46,7 +46,7 @@ struct LeanStoreFUSE {
   }
 
  public:
-  static int GetAttr(const char *path, struct stat *stbuf) {
+  static auto GetAttr(const char *path, struct stat *stbuf) -> int {
     std::string str_path = path;
 
     int res = 0;
@@ -101,7 +101,7 @@ struct LeanStoreFUSE {
     return res;
   }
 
-  static int Create(const char *path, mode_t /*unused*/, struct fuse_file_info * /*unused*/) {
+  static auto Create(const char *path, mode_t /*unused*/, struct fuse_file_info * /*unused*/) -> int {
     int ret = 0;
     std::string str_path(path);
     size_t pos    = str_path.find_last_of('/');
@@ -119,8 +119,8 @@ struct LeanStoreFUSE {
         return;
       }
 
-      int ino = obj->leanfs->inode_id_counter++;
-      obj->leanfs->inodes.Insert({ino}, {0, false});
+      int ino = obj->leanfs->AddInode({0, false});
+
       obj->leanfs->dentries.Insert({Varchar<128>(strdup(filename.c_str())), parent_inode_id}, {ino});
       obj->adapter->Insert({path}, {});
       obj->db->CommitTransaction();
@@ -129,25 +129,25 @@ struct LeanStoreFUSE {
     return ret;
   }
 
-  static int Open(const char * /*unused*/, struct fuse_file_info * /*unused*/) { return 0; }
+  static auto Open(const char * /*unused*/, struct fuse_file_info * /*unused*/) -> int { return 0; }
 
-  static int Getxattr(const char * /*unused*/, const char * /*unused*/, char * /*unused*/, size_t /*unused*/) {
+  static auto Getxattr(const char * /*unused*/, const char * /*unused*/, char * /*unused*/, size_t /*unused*/) -> int {
     return 0;
   };
 
-  static int Access(const char * /*unused*/, int /*unused*/) { return 0; }
+  static auto Access(const char * /*unused*/, int /*unused*/) -> int { return 0; }
 
-  static int Truncate(const char * /*unused*/, off_t /*unused*/) { return 0; }
+  static auto Truncate(const char * /*unused*/, off_t /*unused*/) -> int { return 0; }
 
-  static int Utimens(const char * /*unused*/, const struct timespec /*unused*/[2]) { return 0; }
+  static auto Utimens(const char * /*unused*/, const struct timespec /*unused*/[2]) -> int { return 0; }
 
-  static int Chown(const char * /*unused*/, uid_t /*unused*/, gid_t /*unused*/) { return 0; }
+  static auto Chown(const char * /*unused*/, uid_t /*unused*/, gid_t /*unused*/) -> int { return 0; }
 
-  static int Fsync(const char * /*unused*/, int /*unused*/, struct fuse_file_info * /*unused*/) { return 0; };
+  static auto Fsync(const char * /*unused*/, int /*unused*/, struct fuse_file_info * /*unused*/) -> int { return 0; };
 
-  static int Flush(const char * /*unused*/, struct fuse_file_info * /*unused*/) { return 0; };
+  static auto Flush(const char * /*unused*/, struct fuse_file_info * /*unused*/) -> int { return 0; };
 
-  static int MkDir(const char *path, mode_t /*unused*/) {
+  static auto MkDir(const char *path, mode_t /*unused*/) -> int {
     int ret = 0;
     std::string str_path(path);
     size_t pos    = str_path.find_last_of('/');
@@ -166,8 +166,7 @@ struct LeanStoreFUSE {
         return;
       }
 
-      ino = obj->leanfs->inode_id_counter++;
-      obj->leanfs->inodes.Insert({ino}, {0, true});
+      ino = obj->leanfs->AddInode({0, true});
       obj->leanfs->dentries.Insert({Varchar<128>(strdup(filename.c_str())), parent_inode_id}, {ino});
       obj->leanfs->dentries.Insert({Varchar<128>("."), ino}, {ino});
       obj->leanfs->dentries.Insert({Varchar<128>(".."), ino}, {parent_inode_id});
@@ -178,8 +177,8 @@ struct LeanStoreFUSE {
     return ret;
   };
 
-  static int ReadDir(const char *path, void *buf, fuse_fill_dir_t filler, off_t /*unused*/,
-                     struct fuse_file_info * /*unused*/) {
+  static auto ReadDir(const char *path, void *buf, fuse_fill_dir_t filler, off_t /*unused*/,
+                      struct fuse_file_info * /*unused*/) -> int {
     int ret = 0;
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
       obj->db->StartTransaction();
@@ -205,7 +204,7 @@ struct LeanStoreFUSE {
     return 0;
   }
 
-  static int Unlink(const char *path) {
+  static auto Unlink(const char *path) -> int {
     int ret = 0;
 
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
@@ -219,16 +218,7 @@ struct LeanStoreFUSE {
         return;
       }
 
-      // Remove the inode
-      obj->leanfs->inodes.Erase({ino});
-
-      // Remove relevant dentries
-      std::vector<leanstore::fuse::Dentry::Key> dentry_keys;
-      obj->leanfs->dentries.Scan({{}, {}}, [&](const auto &key, const auto &rec) {
-        if (key.parent_inode_id == ino || rec.target_inode_id == ino) { dentry_keys.push_back(key); }
-        return true;
-      });
-      for (const auto &dentry_key : dentry_keys) { obj->leanfs->dentries.Erase(dentry_key); }
+      obj->leanfs->RemoveInode(ino);
 
       // Remove blob
       uint8_t blob_rep[leanstore::BlobState::MAX_MALLOC_SIZE];
@@ -252,7 +242,8 @@ struct LeanStoreFUSE {
     return ret;
   };
 
-  static int Read(const char *path, char *buf, size_t size, off_t offset, [[maybe_unused]] struct fuse_file_info *fi) {
+  static auto Read(const char *path, char *buf, size_t size, off_t offset, [[maybe_unused]] struct fuse_file_info *fi)
+    -> int {
     int ret = 0;
 
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
@@ -290,7 +281,8 @@ struct LeanStoreFUSE {
     return ret;
   }
 
-  static int Write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info * /*unused*/) {
+  static auto Write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info * /*unused*/)
+    -> int {
     // std::cout << path << " " << buf << " " << size << " " << offset << std::endl;
     int res = 0;
 
@@ -343,7 +335,7 @@ struct LeanStoreFUSE {
 
 LeanStoreFUSE *LeanStoreFUSE::obj;
 
-int main(int argc, char **argv) {
+auto main(int argc, char **argv) -> int {
   // Initialize FUSE filesystem
   FLAGS_exmap_path     = "/dev/exmap0";
   FLAGS_worker_count   = 1;
@@ -358,39 +350,37 @@ int main(int argc, char **argv) {
   db->worker_pool.ScheduleSyncJob(0, [&]() {
     db->StartTransaction();
 
-    auto root_inode_id = fs.leanfs->inode_id_counter++;
-    fs.leanfs->inodes.Insert({root_inode_id}, {0, true});
+    auto root_inode_id = fs.leanfs->AddInode({0, true});
     fs.leanfs->dentries.Insert({".", root_inode_id}, {root_inode_id});
     fs.leanfs->dentries.Insert({"..", root_inode_id}, {root_inode_id});
 
-    fs.leanfs->inodes.Insert({fs.leanfs->inode_id_counter}, {0, false});
-    fs.leanfs->dentries.Insert({"blob", root_inode_id}, {fs.leanfs->inode_id_counter++});
+    auto inserted_id = fs.leanfs->AddInode({0, false});
+    fs.leanfs->dentries.Insert({"blob", root_inode_id}, {inserted_id});
     u8 payload[12288];
     for (auto idx = 0; idx < 12288; idx++) { payload[idx] = 97 + idx % 10; }
     auto blob_rep = db->CreateNewBlob({payload, 12288}, {}, false);
     fs.adapter->InsertRawPayload({"/blob"}, blob_rep);
 
-    fs.leanfs->inodes.Insert({fs.leanfs->inode_id_counter}, {0, false});
-    fs.leanfs->dentries.Insert({"blob2", root_inode_id}, {fs.leanfs->inode_id_counter++});
+    inserted_id = fs.leanfs->AddInode({0, false});
+    fs.leanfs->dentries.Insert({"blob2", root_inode_id}, {inserted_id});
     u8 payload2[4096];
     for (unsigned char &byte : payload2) { byte = 124; }
     auto blob_rep2 = db->CreateNewBlob({payload2, 4096}, {}, false);
     fs.adapter->InsertRawPayload({"/blob2"}, blob_rep2);
 
-    fs.leanfs->inodes.Insert({fs.leanfs->inode_id_counter}, {0, false});
-    fs.leanfs->dentries.Insert({"hello", root_inode_id}, {fs.leanfs->inode_id_counter++});
+    inserted_id = fs.leanfs->AddInode({0, false});
+    fs.leanfs->dentries.Insert({"hello", root_inode_id}, {inserted_id});
     strcpy((char *)payload, "Hello World!");
     blob_rep = db->CreateNewBlob({payload, strlen((char *)payload)}, {}, false);
     fs.adapter->InsertRawPayload({"/hello"}, blob_rep);
 
-    int dir1_ino = fs.leanfs->inode_id_counter++;
-    fs.leanfs->inodes.Insert({dir1_ino}, {0, true});
+    int dir1_ino = fs.leanfs->AddInode({0, true});
     fs.leanfs->dentries.Insert({"dir1", root_inode_id}, {dir1_ino});
     fs.leanfs->dentries.Insert({".", dir1_ino}, {dir1_ino});
     fs.leanfs->dentries.Insert({"..", dir1_ino}, {root_inode_id});
 
-    fs.leanfs->inodes.Insert({fs.leanfs->inode_id_counter}, {0, false});
-    fs.leanfs->dentries.Insert({"tmp.txt", dir1_ino}, {fs.leanfs->inode_id_counter++});
+    inserted_id = fs.leanfs->AddInode({0, false});
+    fs.leanfs->dentries.Insert({"tmp.txt", dir1_ino}, {inserted_id});
     strcpy((char *)payload, "Temporary file in dir1");
     blob_rep = db->CreateNewBlob({payload, strlen((char *)payload)}, {}, false);
     fs.adapter->InsertRawPayload({"/dir1/tmp.txt"}, blob_rep);
