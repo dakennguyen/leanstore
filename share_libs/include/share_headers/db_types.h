@@ -5,8 +5,8 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#include <string>
 #include <span>
+#include <string>
 
 using UInteger                       = uint32_t;
 using Integer                        = int32_t;
@@ -40,7 +40,7 @@ struct BytesPayload {
     return *this;
   }
 
-  auto Data() -> uint8_t* { return &value[0]; }
+  auto Data() -> uint8_t * { return &value[0]; }
 };
 
 template <int MaxLength>
@@ -104,5 +104,12 @@ struct Varchar {
     assert(MaxLength > strlen(suffix));
     if (strcmp(data + (MaxLength - strlen(suffix)), suffix) == 0) { return true; }
     return false;
+  }
+
+  auto CStr() const -> const char * {
+    static thread_local char buffer[MaxLength + 1];
+    std::memcpy(buffer, data, length);
+    buffer[length] = '\0';
+    return buffer;
   }
 };

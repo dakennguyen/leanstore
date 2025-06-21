@@ -2,7 +2,6 @@
 
 #include "leanstore/leanstore.h"
 
-#include "sha256/sha256.h"
 #include "share_headers/db_types.h"
 #include "typefold/typefold.h"
 
@@ -35,6 +34,54 @@ struct FileRelation {
   }
 
   static auto MaxFoldLength() -> uint32_t { return 0 + sizeof(Key::file_name); }
+};
+
+struct Inode {
+  struct Key {
+    Integer id;
+  };
+
+  Numeric size;
+  bool is_directory;
+
+  auto PayloadSize() const -> uint32_t { return sizeof(Inode); }
+
+  static auto FoldKey(uint8_t *out, const Inode::Key &key) -> uint16_t {
+    auto pos = Fold(out, key.id);
+    return pos;
+  }
+
+  static auto UnfoldKey(const uint8_t *in, Inode::Key &key) -> uint16_t {
+    auto pos = Unfold(in, key.id);
+    return pos;
+  }
+
+  static auto MaxFoldLength() -> uint32_t { return 0 + sizeof(Key::id); }
+};
+
+struct Dentry {
+  struct Key {
+    Varchar<128> file_name;
+    Integer parent_inode_id;
+  };
+
+  Integer target_inode_id;
+
+  auto PayloadSize() const -> uint32_t { return sizeof(Dentry); }
+
+  static auto FoldKey(uint8_t *out, const Dentry::Key &key) -> uint16_t {
+    auto pos = Fold(out, key.parent_inode_id);
+    pos += Fold(out + pos, key.file_name);
+    return pos;
+  }
+
+  static auto UnfoldKey(const uint8_t *in, Dentry::Key &key) -> uint16_t {
+    auto pos = Unfold(in, key.parent_inode_id);
+    pos += Unfold(in + pos, key.file_name);
+    return pos;
+  }
+
+  static auto MaxFoldLength() -> uint32_t { return 0 + sizeof(Key::parent_inode_id) + sizeof(Key::file_name); }
 };
 
 }  // namespace leanstore::fuse

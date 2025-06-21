@@ -1,6 +1,7 @@
+#include "benchmark/fuse/leanfs.h"
 #include "fmt/ranges.h"
+#include "share_headers/db_types.h"
 #define FUSE_USE_VERSION 35
-#include <iostream>
 
 #include "benchmark/adapters/leanstore_adapter.h"
 #include "benchmark/adapters/sql_databases.h"
@@ -9,47 +10,72 @@
 
 #include <fuse.h>
 #include <cstring>
+#include <iostream>
 #include <string>
 
 struct LeanStoreFUSE {
   static LeanStoreFUSE *obj;
   leanstore::LeanStore *db;
   std::unique_ptr<LeanStoreAdapter<leanstore::fuse::FileRelation>> adapter;
-  std::unique_ptr<SQLiteDB> dblite;
+  std::unique_ptr<leanstore::fuse::LeanFS<LeanStoreAdapter>> leanfs;
 
   explicit LeanStoreFUSE(leanstore::LeanStore *db)
       : db(db),
         adapter(std::make_unique<LeanStoreAdapter<leanstore::fuse::FileRelation>>(*db)),
-        dblite(std::make_unique<SQLiteDB>("/home/khoa/projects/leanstore/fs.sqlite")) {}
+        leanfs(std::make_unique<leanstore::fuse::LeanFS<LeanStoreAdapter>>(*db)) {}
 
   ~LeanStoreFUSE() = default;
 
+ private:
+  // This function need to be wrapped in a transaction
+  static auto GetInodeFromPath(const std::string &str_path) -> int {
+    auto path_str = str_path;
+    if (path_str == "/") { return 0; }
+    if (path_str.back() == '/') { path_str.pop_back(); }
+
+    size_t pos            = path_str.find_last_of('/');
+    auto parent           = path_str.substr(0, pos + 1);
+    auto filename         = path_str.substr(pos + 1);
+    auto filename_varchar = Varchar<128>(strdup(filename.c_str()));
+
+    auto parent_inode_id = GetInodeFromPath(parent);
+    int ino              = -1;
+    obj->leanfs->dentries.LookUp({filename_varchar, parent_inode_id},
+                                 [&](const auto &rec) { ino = rec.target_inode_id; });
+    return ino;
+  }
+
+ public:
   static int GetAttr(const char *path, struct stat *stbuf) {
-    std::string filename = path;
-    int ino              = 0;
-    obj->dblite->ui << "SELECT target_inode_id, file_name FROM dentry WHERE file_path = ?" << filename >>
-      [&](int target_inode_id, const std::string &file_name) {
-        if (file_name != "..") { ino = target_inode_id; }
-      };
-    if (ino == 0) { return -ENOENT; }
+    std::string str_path = path;
 
     int res = 0;
     memset(stbuf, 0, sizeof(struct stat));
-
-    stbuf->st_uid   = getuid();
-    stbuf->st_gid   = getgid();
-    stbuf->st_atime = stbuf->st_mtime = stbuf->st_ctime = time(nullptr);
-
-    bool is_directory = false;
-    obj->dblite->ui << "SELECT is_directory FROM inode WHERE id = ?" << ino >>
-      [&](bool is_dir) { is_directory = is_dir; };
-
-    if (is_directory) {
+    if (str_path == "/") {
       stbuf->st_mode  = S_IFDIR | 0777;
       stbuf->st_nlink = 2;
-    } else {
-      obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
-        obj->db->StartTransaction();
+      return res;
+    }
+
+    obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
+      obj->db->StartTransaction();
+      int ino = -1;
+      ino     = GetInodeFromPath(str_path);
+      if (ino == -1) {
+        res = -ENOENT;
+        obj->db->CommitTransaction();
+        return;
+      }
+
+      stbuf->st_uid   = getuid();
+      stbuf->st_gid   = getgid();
+      stbuf->st_atime = stbuf->st_mtime = stbuf->st_ctime = time(nullptr);
+
+      bool is_directory = obj->leanfs->inodes.LookupField({ino}, &leanstore::fuse::Inode::is_directory);
+      if (is_directory) {
+        stbuf->st_mode  = S_IFDIR | 0777;
+        stbuf->st_nlink = 2;
+      } else {
         uint8_t blob_rep[leanstore::BlobState::MAX_MALLOC_SIZE];
         uint64_t blob_rep_size = 0;
 
@@ -69,37 +95,38 @@ struct LeanStoreFUSE {
         stbuf->st_mode  = S_IFREG | 0777;
         stbuf->st_nlink = 1;
         stbuf->st_size  = reinterpret_cast<leanstore::BlobState *>(blob_rep)->blob_size;
-        obj->db->CommitTransaction();
-      });
-    }
+      }
+      obj->db->CommitTransaction();
+    });
     return res;
   }
 
   static int Create(const char *path, mode_t /*unused*/, struct fuse_file_info * /*unused*/) {
+    int ret = 0;
     std::string str_path(path);
     size_t pos    = str_path.find_last_of('/');
-    auto parent   = str_path.substr(0, pos);
+    auto parent   = str_path.substr(0, pos + 1);
     auto filename = str_path.substr(pos + 1);
-
-    int parent_inode_id = 0;
-    int ino;
-    obj->dblite->ui << "SELECT target_inode_id FROM dentry WHERE file_path = ?" << parent >>
-      [&](int target_inode_id) { parent_inode_id = target_inode_id; };
-    if (parent_inode_id == 0) { return -ENOENT; }
-
-    obj->dblite->ui << "INSERT INTO inode (size, is_directory) VALUES (0, 0);";
-    obj->dblite->ui << "SELECT last_insert_rowid();" >> [&](int inode_id) { ino = inode_id; };
-    obj->dblite->ui << fmt::format(
-      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('{}', '{}', {}, {});",
-      str_path, filename, parent_inode_id, ino);
 
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
       obj->db->StartTransaction();
+
+      int parent_inode_id = -1;
+      parent_inode_id     = GetInodeFromPath(parent);
+      if (parent_inode_id == -1) {
+        ret = -ENOENT;
+        obj->db->CommitTransaction();
+        return;
+      }
+
+      int ino = obj->leanfs->inode_id_counter++;
+      obj->leanfs->inodes.Insert({ino}, {0, false});
+      obj->leanfs->dentries.Insert({Varchar<128>(strdup(filename.c_str())), parent_inode_id}, {ino});
       obj->adapter->Insert({path}, {});
       obj->db->CommitTransaction();
     });
 
-    return 0;
+    return ret;
   }
 
   static int Open(const char * /*unused*/, struct fuse_file_info * /*unused*/) { return 0; }
@@ -121,62 +148,89 @@ struct LeanStoreFUSE {
   static int Flush(const char * /*unused*/, struct fuse_file_info * /*unused*/) { return 0; };
 
   static int MkDir(const char *path, mode_t /*unused*/) {
+    int ret = 0;
     std::string str_path(path);
     size_t pos    = str_path.find_last_of('/');
-    auto parent   = str_path.substr(0, pos);
+    auto parent   = str_path.substr(0, pos + 1);
     auto filename = str_path.substr(pos + 1);
 
-    int parent_inode_id = 0;
+    int parent_inode_id = -1;
     int ino;
-    obj->dblite->ui << "SELECT target_inode_id FROM dentry WHERE file_path = ?" << parent >>
-      [&](int target_inode_id) { parent_inode_id = target_inode_id; };
-    if (parent_inode_id == 0) { return -ENOENT; }
-    obj->dblite->ui << "INSERT INTO inode (size, is_directory) VALUES (0, 1);";
-    obj->dblite->ui << "SELECT last_insert_rowid();" >> [&](int inode_id) { ino = inode_id; };
 
-    obj->dblite->ui << fmt::format(
-      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('{}', '{}', {}, {});",
-      str_path, filename, parent_inode_id, ino);
-    obj->dblite->ui << fmt::format(
-      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('', '.', {}, {});", ino,
-      ino);
-    obj->dblite->ui << fmt::format(
-      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('', '..', {}, {});", ino,
-      parent_inode_id);
+    obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
+      obj->db->StartTransaction();
 
-    return 0;
+      parent_inode_id = GetInodeFromPath(parent);
+      if (parent_inode_id == -1) {
+        ret = -ENOENT;
+        return;
+      }
+
+      ino = obj->leanfs->inode_id_counter++;
+      obj->leanfs->inodes.Insert({ino}, {0, true});
+      obj->leanfs->dentries.Insert({Varchar<128>(strdup(filename.c_str())), parent_inode_id}, {ino});
+      obj->leanfs->dentries.Insert({Varchar<128>("."), ino}, {ino});
+      obj->leanfs->dentries.Insert({Varchar<128>(".."), ino}, {parent_inode_id});
+
+      obj->db->CommitTransaction();
+    });
+
+    return ret;
   };
 
   static int ReadDir(const char *path, void *buf, fuse_fill_dir_t filler, off_t /*unused*/,
                      struct fuse_file_info * /*unused*/) {
-    int parent_inode_id = 0;
-    obj->dblite->ui << "SELECT target_inode_id FROM dentry WHERE file_path = ?" << path >>
-      [&](int target_inode_id) { parent_inode_id = target_inode_id; };
-    if (parent_inode_id == 0) { return -ENOENT; }
+    int ret = 0;
+    obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
+      obj->db->StartTransaction();
 
-    obj->dblite->ui
-        << "SELECT file_name FROM dentry JOIN inode ON dentry.target_inode_id = inode.id WHERE parent_inode_id = ?;"
-        << parent_inode_id >>
-      [&](const std::string &file_name) { filler(buf, strdup(file_name.c_str()), nullptr, 0); };
+      int parent_inode_id = -1;
+      parent_inode_id     = GetInodeFromPath(path);
+      if (parent_inode_id == -1) {
+        ret = -ENOENT;
+        return;
+      }
+
+      obj->leanfs->dentries.Scan({{}, parent_inode_id}, [&](const auto &key, const auto &) {
+        if (key.parent_inode_id == parent_inode_id) {
+          filler(buf, key.file_name.CStr(), nullptr, 0);
+          return true;
+        }
+        return false;
+      });
+
+      obj->db->CommitTransaction();
+    });
 
     return 0;
   }
 
   static int Unlink(const char *path) {
-    std::string filename = path;
-    int ino              = 0;
-    obj->dblite->ui << "SELECT target_inode_id, file_name FROM dentry WHERE file_path = ?" << filename >>
-      [&](int target_inode_id, const std::string &file_name) {
-        if (file_name != "..") { ino = target_inode_id; }
-      };
-    if (ino == 0) { return -ENOENT; }
-    obj->dblite->ui << "PRAGMA foreign_keys = ON;";
-    obj->dblite->ui << "DELETE FROM inode WHERE id = ?;" << ino;
-
     int ret = 0;
 
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
       obj->db->StartTransaction();
+
+      int ino = -1;
+      ino     = GetInodeFromPath(path);
+      if (ino == -1) {
+        ret = -ENOENT;
+        obj->db->CommitTransaction();
+        return;
+      }
+
+      // Remove the inode
+      obj->leanfs->inodes.Erase({ino});
+
+      // Remove relevant dentries
+      std::vector<leanstore::fuse::Dentry::Key> dentry_keys;
+      obj->leanfs->dentries.Scan({{}, {}}, [&](const auto &key, const auto &rec) {
+        if (key.parent_inode_id == ino || rec.target_inode_id == ino) { dentry_keys.push_back(key); }
+        return true;
+      });
+      for (const auto &dentry_key : dentry_keys) { obj->leanfs->dentries.Erase(dentry_key); }
+
+      // Remove blob
       uint8_t blob_rep[leanstore::BlobState::MAX_MALLOC_SIZE];
 
       auto file_path = FilePath(path);
@@ -226,10 +280,6 @@ struct LeanStoreFUSE {
         return;
       }
 
-      // for (int i = 0; i < 32; i++) {
-      //   std::cout << "DEBUG sha2_val[" << i << "]: " << (int)bh->sha2_val[i] << std::endl;
-      // }
-
       obj->db->LoadBlob(
         bh, [&](std::span<const u8> content) { std::memcpy(buf, content.data(), content.size()); }, size, offset);
 
@@ -241,6 +291,7 @@ struct LeanStoreFUSE {
   }
 
   static int Write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info * /*unused*/) {
+    // std::cout << path << " " << buf << " " << size << " " << offset << std::endl;
     int res = 0;
 
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
@@ -276,11 +327,7 @@ struct LeanStoreFUSE {
         // Append
         u8 payload[size];
         std::memcpy(payload, buf, size);
-        // auto start                            = std::chrono::high_resolution_clock::now();
-        span_bh2 = obj->db->CreateNewBlob({payload, size}, bh, false);
-        // auto end                              = std::chrono::high_resolution_clock::now();
-        // std::chrono::duration<double> elapsed = end - start;
-        // std::cout << "Elapsed time (total): " << elapsed.count() << " seconds" << std::endl;
+        span_bh2 = obj->db->CreateNewBlob({payload, size}, bh, true);
       }
 
       // Update
@@ -307,72 +354,47 @@ int main(int argc, char **argv) {
   auto fs              = LeanStoreFUSE(db.get());
   LeanStoreFUSE::obj   = &fs;
 
-  fs.dblite->StartTransaction();
-  fs.dblite->ui << "DROP TABLE IF EXISTS INODE;";
-  fs.dblite->ui << "DROP TABLE IF EXISTS DENTRY;";
-  fs.dblite->ui << "CREATE TABLE inode ( id INTEGER PRIMARY KEY, size INTEGER NOT NULL, is_directory BOOLEAN NOT NULL "
-                   "CHECK (is_directory IN (0, 1)));";
-  fs.dblite->ui << "CREATE TABLE dentry ( file_path TEXT NOT NULL, file_name TEXT NOT NULL, parent_inode_id INTEGER "
-                   "NOT NULL, target_inode_id INTEGER NOT NULL, FOREIGN KEY (parent_inode_id) REFERENCES inode(id) ON "
-                   "DELETE CASCADE, "
-                   "FOREIGN KEY (target_inode_id) REFERENCES inode(id) ON DELETE CASCADE, PRIMARY KEY (file_name, "
-                   "parent_inode_id));";
-  fs.dblite->CommitTransaction();
-
   // Initialize temp BLOB
   db->worker_pool.ScheduleSyncJob(0, [&]() {
     db->StartTransaction();
-    fs.dblite->StartTransaction();
 
-    auto root_inode_id = 1;
-    fs.dblite->ui << fmt::format("INSERT INTO inode (id, size, is_directory) VALUES ({}, 0, 1);", root_inode_id);
-    fs.dblite->ui << fmt::format(
-      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('/', '.', {}, {});",
-      root_inode_id, root_inode_id);
-    fs.dblite->ui << fmt::format(
-      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('', '..', {}, {});",
-      root_inode_id, root_inode_id);
+    auto root_inode_id = fs.leanfs->inode_id_counter++;
+    fs.leanfs->inodes.Insert({root_inode_id}, {0, true});
+    fs.leanfs->dentries.Insert({".", root_inode_id}, {root_inode_id});
+    fs.leanfs->dentries.Insert({"..", root_inode_id}, {root_inode_id});
 
-    fs.dblite->ui << "INSERT INTO inode (id, size, is_directory) VALUES (2, 0, 0);";
-    fs.dblite->ui
-      << "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('/blob', 'blob', 1, 2);";
+    fs.leanfs->inodes.Insert({fs.leanfs->inode_id_counter}, {0, false});
+    fs.leanfs->dentries.Insert({"blob", root_inode_id}, {fs.leanfs->inode_id_counter++});
     u8 payload[12288];
     for (auto idx = 0; idx < 12288; idx++) { payload[idx] = 97 + idx % 10; }
     auto blob_rep = db->CreateNewBlob({payload, 12288}, {}, false);
     fs.adapter->InsertRawPayload({"/blob"}, blob_rep);
 
-    fs.dblite->ui << "INSERT INTO inode (id, size, is_directory) VALUES (3, 0, 0);";
-    fs.dblite->ui << "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('/blob2', "
-                     "'blob2', 1, 3);";
+    fs.leanfs->inodes.Insert({fs.leanfs->inode_id_counter}, {0, false});
+    fs.leanfs->dentries.Insert({"blob2", root_inode_id}, {fs.leanfs->inode_id_counter++});
     u8 payload2[4096];
     for (unsigned char &byte : payload2) { byte = 124; }
     auto blob_rep2 = db->CreateNewBlob({payload2, 4096}, {}, false);
     fs.adapter->InsertRawPayload({"/blob2"}, blob_rep2);
 
-    fs.dblite->ui << "INSERT INTO inode (id, size, is_directory) VALUES (4, 0, 0);";
-    fs.dblite->ui << "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('/hello', "
-                     "'hello', 1, 4);";
+    fs.leanfs->inodes.Insert({fs.leanfs->inode_id_counter}, {0, false});
+    fs.leanfs->dentries.Insert({"hello", root_inode_id}, {fs.leanfs->inode_id_counter++});
     strcpy((char *)payload, "Hello World!");
     blob_rep = db->CreateNewBlob({payload, strlen((char *)payload)}, {}, false);
     fs.adapter->InsertRawPayload({"/hello"}, blob_rep);
 
-    fs.dblite->ui << fmt::format("INSERT INTO inode (id, size, is_directory) VALUES ({}, 0, 1);", 5);
-    fs.dblite->ui << fmt::format(
-      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('/dir1', 'dir1', {}, {});",
-      1, 5);
-    fs.dblite->ui << fmt::format(
-      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('', '.', {}, {});", 5, 5);
-    fs.dblite->ui << fmt::format(
-      "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES ('', '..', {}, {});", 5, 1);
+    int dir1_ino = fs.leanfs->inode_id_counter++;
+    fs.leanfs->inodes.Insert({dir1_ino}, {0, true});
+    fs.leanfs->dentries.Insert({"dir1", root_inode_id}, {dir1_ino});
+    fs.leanfs->dentries.Insert({".", dir1_ino}, {dir1_ino});
+    fs.leanfs->dentries.Insert({"..", dir1_ino}, {root_inode_id});
 
-    fs.dblite->ui << "INSERT INTO inode (id, size, is_directory) VALUES (6, 0, 0);";
-    fs.dblite->ui << "INSERT INTO dentry (file_path, file_name, parent_inode_id, target_inode_id) VALUES "
-                     "('/dir1/tmp.txt', 'tmp.txt', 5, 6);";
+    fs.leanfs->inodes.Insert({fs.leanfs->inode_id_counter}, {0, false});
+    fs.leanfs->dentries.Insert({"tmp.txt", dir1_ino}, {fs.leanfs->inode_id_counter++});
     strcpy((char *)payload, "Temporary file in dir1");
     blob_rep = db->CreateNewBlob({payload, strlen((char *)payload)}, {}, false);
     fs.adapter->InsertRawPayload({"/dir1/tmp.txt"}, blob_rep);
 
-    fs.dblite->CommitTransaction();
     db->CommitTransaction();
   });
 

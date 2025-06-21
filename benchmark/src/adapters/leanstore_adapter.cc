@@ -172,6 +172,8 @@ auto LeanStoreAdapter<RecordBase>::LookUpBlob(std::span<u8> blob_payload,
 template struct LeanStoreAdapter<benchmark::RelationTest>;
 template struct LeanStoreAdapter<benchmark::VariableSizeRelation>;
 template struct LeanStoreAdapter<leanstore::fuse::FileRelation>;
+template struct LeanStoreAdapter<leanstore::fuse::Inode>;
+template struct LeanStoreAdapter<leanstore::fuse::Dentry>;
 
 // For TPC-C
 template struct LeanStoreAdapter<tpcc::WarehouseType>;
