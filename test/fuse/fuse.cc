@@ -8,7 +8,7 @@
 #include "benchmark/fuse/schema.h"
 #include "leanstore/leanstore.h"
 
-#include <fuse.h>
+#include <fuse3/fuse.h>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -19,8 +19,7 @@ struct LeanStoreFUSE {
   std::unique_ptr<leanstore::fuse::LeanFS<LeanStoreAdapter>> leanfs;
 
   explicit LeanStoreFUSE(leanstore::LeanStore *db)
-      : db(db),
-        leanfs(std::make_unique<leanstore::fuse::LeanFS<LeanStoreAdapter>>(*db)) {}
+      : db(db), leanfs(std::make_unique<leanstore::fuse::LeanFS<LeanStoreAdapter>>(*db)) {}
 
   ~LeanStoreFUSE() = default;
 
@@ -44,7 +43,7 @@ struct LeanStoreFUSE {
   }
 
  public:
-  static auto GetAttr(const char *path, struct stat *stbuf) -> int {
+  static auto GetAttr(const char *path, struct stat *stbuf, struct fuse_file_info * /*unused*/) -> int {
     std::string str_path = path;
 
     int res = 0;
@@ -135,11 +134,15 @@ struct LeanStoreFUSE {
 
   static auto Access(const char * /*unused*/, int /*unused*/) -> int { return 0; }
 
-  static auto Truncate(const char * /*unused*/, off_t /*unused*/) -> int { return 0; }
+  static auto Truncate(const char * /*unused*/, off_t /*unused*/, struct fuse_file_info *fi) -> int { return 0; }
 
-  static auto Utimens(const char * /*unused*/, const struct timespec /*unused*/[2]) -> int { return 0; }
+  static auto Utimens(const char * /*unused*/, const struct timespec tv[2], struct fuse_file_info *fi) -> int {
+    return 0;
+  }
 
-  static auto Chown(const char * /*unused*/, uid_t /*unused*/, gid_t /*unused*/) -> int { return 0; }
+  static auto Chown(const char * /*unused*/, uid_t /*unused*/, gid_t /*unused*/, struct fuse_file_info *fi) -> int {
+    return 0;
+  }
 
   static auto Fsync(const char * /*unused*/, int /*unused*/, struct fuse_file_info * /*unused*/) -> int { return 0; };
 
@@ -176,7 +179,7 @@ struct LeanStoreFUSE {
   };
 
   static auto ReadDir(const char *path, void *buf, fuse_fill_dir_t filler, off_t /*unused*/,
-                      struct fuse_file_info * /*unused*/) -> int {
+                      struct fuse_file_info * /*unused*/, enum fuse_readdir_flags /*unused*/) {
     int ret = 0;
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
       obj->db->StartTransaction();
@@ -190,7 +193,7 @@ struct LeanStoreFUSE {
 
       obj->leanfs->dentries.Scan({{}, parent_inode_id}, [&](const auto &key, const auto &) {
         if (key.parent_inode_id == parent_inode_id) {
-          filler(buf, key.file_name.CStr(), nullptr, 0);
+          filler(buf, key.file_name.CStr(), nullptr, 0, static_cast<fuse_fill_dir_flags>(0));
           return true;
         }
         return false;
@@ -240,8 +243,8 @@ struct LeanStoreFUSE {
     return ret;
   };
 
-  static auto Read(const char *path, char *buf, size_t size, off_t offset, [[maybe_unused]] struct fuse_file_info *fi)
-    -> int {
+  static auto Read(const char *path, char *buf, size_t size, off_t offset,
+                   [[maybe_unused]] struct fuse_file_info *fi) -> int {
     int ret = 0;
 
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
@@ -279,8 +282,8 @@ struct LeanStoreFUSE {
     return ret;
   }
 
-  static auto Write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info * /*unused*/)
-    -> int {
+  static auto Write(const char *path, const char *buf, size_t size, off_t offset,
+                    struct fuse_file_info * /*unused*/) -> int {
     // std::cout << path << " " << buf << " " << size << " " << offset << std::endl;
     int res = 0;
 
@@ -306,7 +309,7 @@ struct LeanStoreFUSE {
       std::span<const u8> span_bh2;
       if (bh->blob_size == 0 || (u64)offset < bh->blob_size) {
         size_t payload_size = std::max(bh->blob_size, offset + size);
-        auto payload = std::make_unique<u8[]>(payload_size);
+        auto payload        = std::make_unique<u8[]>(payload_size);
 
         obj->leanfs->files.LoadBlob(
           blob_rep,

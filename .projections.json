@@ -1,7 +1,7 @@
 {
   "*": {
-    "make": "cd build && cmake -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON .. && make -j8",
-    "start": "./build/test/LeanStoreFUSE -s -d -f /home/khoa/mnt/test4"
+    "make": "cd build3 && cmake -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON .. && make -j8",
+    "start": "leanfs3 -s -d -f /home/khoa/mnt/test4"
   },
   "*.fio": {
     "dispatch": "fio --directory=/home/khoa/mnt/test4 %"
@@ -17,8 +17,8 @@
   "test/**/test_*.cc": {
     "alternate": "src/{}.cc",
     "type": "test",
-    "make": "cd build && make -j4 test_{basename}",
-    "dispatch": "./build/test/test_{basename}"
+    "make": "cd build3 && make -j4 test_{basename}",
+    "dispatch": "./build3/test/test_{basename}"
   },
   "src/include/*.h": {
     "alternate": "src/{}.cc",
