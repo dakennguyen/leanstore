@@ -16,12 +16,10 @@
 struct LeanStoreFUSE {
   static LeanStoreFUSE *obj;
   leanstore::LeanStore *db;
-  std::unique_ptr<LeanStoreAdapter<leanstore::fuse::FileRelation>> adapter;
   std::unique_ptr<leanstore::fuse::LeanFS<LeanStoreAdapter>> leanfs;
 
   explicit LeanStoreFUSE(leanstore::LeanStore *db)
       : db(db),
-        adapter(std::make_unique<LeanStoreAdapter<leanstore::fuse::FileRelation>>(*db)),
         leanfs(std::make_unique<leanstore::fuse::LeanFS<LeanStoreAdapter>>(*db)) {}
 
   ~LeanStoreFUSE() = default;
@@ -82,7 +80,7 @@ struct LeanStoreFUSE {
         auto file_path = FilePath(path);
         auto file_key  = reinterpret_cast<leanstore::fuse::FileRelation::Key &>(file_path);
 
-        auto found = obj->adapter->LookUp(file_key, [&](const auto &rec) {
+        auto found = obj->leanfs->files.LookUp(file_key, [&](const auto &rec) {
           blob_rep_size = rec.PayloadSize();
           std::memcpy(blob_rep, const_cast<leanstore::fuse::FileRelation &>(rec).file_meta.Data(), rec.PayloadSize());
         });
@@ -122,7 +120,7 @@ struct LeanStoreFUSE {
       int ino = obj->leanfs->AddInode({0, false});
 
       obj->leanfs->dentries.Insert({Varchar<128>(strdup(filename.c_str())), parent_inode_id}, {ino});
-      obj->adapter->Insert({path}, {});
+      obj->leanfs->files.Insert({path}, {});
       obj->db->CommitTransaction();
     });
 
@@ -226,7 +224,7 @@ struct LeanStoreFUSE {
       auto file_path = FilePath(path);
       auto file_key  = reinterpret_cast<leanstore::fuse::FileRelation::Key &>(file_path);
 
-      auto found = obj->adapter->LookUp(file_key, [&](const auto &rec) {
+      auto found = obj->leanfs->files.LookUp(file_key, [&](const auto &rec) {
         std::memcpy(blob_rep, const_cast<leanstore::fuse::FileRelation &>(rec).file_meta.Data(), rec.PayloadSize());
       });
       if (!found) {
@@ -234,8 +232,8 @@ struct LeanStoreFUSE {
         obj->db->CommitTransaction();
         return;
       }
-      obj->adapter->RemoveBlob(blob_rep);
-      obj->adapter->Erase(file_key);
+      obj->leanfs->files.RemoveBlob(blob_rep);
+      obj->leanfs->files.Erase(file_key);
       obj->db->CommitTransaction();
     });
 
@@ -254,7 +252,7 @@ struct LeanStoreFUSE {
       auto file_path = FilePath(path);
       auto file_key  = reinterpret_cast<leanstore::fuse::FileRelation::Key &>(file_path);
 
-      auto found = obj->adapter->LookUp(file_key, [&](const auto &rec) {
+      auto found = obj->leanfs->files.LookUp(file_key, [&](const auto &rec) {
         blob_rep_size = rec.PayloadSize();
         std::memcpy(blob_rep, const_cast<leanstore::fuse::FileRelation &>(rec).file_meta.Data(), rec.PayloadSize());
       });
@@ -294,7 +292,7 @@ struct LeanStoreFUSE {
       u64 blob_rep_size = 0;
       auto file_path    = FilePath(path);
       auto file_key     = reinterpret_cast<leanstore::fuse::FileRelation::Key &>(file_path);
-      auto found        = obj->adapter->LookUp(file_key, [&](const auto &rec) {
+      auto found        = obj->leanfs->files.LookUp(file_key, [&](const auto &rec) {
         blob_rep_size = rec.PayloadSize();
         std::memcpy(blob_rep, const_cast<leanstore::fuse::FileRelation &>(rec).file_meta.Data(), rec.PayloadSize());
       });
@@ -310,23 +308,23 @@ struct LeanStoreFUSE {
         size_t payload_size = std::max(bh->blob_size, offset + size);
         auto payload = std::make_unique<u8[]>(payload_size);
 
-        obj->adapter->LoadBlob(
+        obj->leanfs->files.LoadBlob(
           blob_rep,
           [&payload](std::span<const u8> content) { std::memcpy(payload.get(), content.data(), content.size()); }, 0);
 
         // Modify
         std::memcpy(payload.get() + offset, buf, size);
         std::span<u8> payload_span(payload.get(), payload_size);
-        span_bh2 = obj->adapter->RegisterBlob(payload_span, {}, false);
+        span_bh2 = obj->leanfs->files.RegisterBlob(payload_span, {}, false);
       } else {
         // Append
         u8 payload[size];
         std::memcpy(payload, buf, size);
-        span_bh2 = obj->adapter->RegisterBlob({payload, size}, blob_rep, true);
+        span_bh2 = obj->leanfs->files.RegisterBlob({payload, size}, blob_rep, true);
       }
 
       // Update
-      obj->adapter->UpdateRawPayload({path}, span_bh2, [&](const auto &) {});
+      obj->leanfs->files.UpdateRawPayload({path}, span_bh2, [&](const auto &) {});
 
       res = size;
       obj->db->CommitTransaction();
@@ -362,20 +360,20 @@ auto main(int argc, char **argv) -> int {
     u8 payload[12288];
     for (auto idx = 0; idx < 12288; idx++) { payload[idx] = 97 + idx % 10; }
     auto blob_rep = db->CreateNewBlob({payload, 12288}, {}, false);
-    fs.adapter->InsertRawPayload({"/blob"}, blob_rep);
+    fs.leanfs->files.InsertRawPayload({"/blob"}, blob_rep);
 
     inserted_id = fs.leanfs->AddInode({0, false});
     fs.leanfs->dentries.Insert({"blob2", root_inode_id}, {inserted_id});
     u8 payload2[4096];
     for (unsigned char &byte : payload2) { byte = 124; }
     auto blob_rep2 = db->CreateNewBlob({payload2, 4096}, {}, false);
-    fs.adapter->InsertRawPayload({"/blob2"}, blob_rep2);
+    fs.leanfs->files.InsertRawPayload({"/blob2"}, blob_rep2);
 
     inserted_id = fs.leanfs->AddInode({0, false});
     fs.leanfs->dentries.Insert({"hello", root_inode_id}, {inserted_id});
     strcpy((char *)payload, "Hello World!");
     blob_rep = db->CreateNewBlob({payload, strlen((char *)payload)}, {}, false);
-    fs.adapter->InsertRawPayload({"/hello"}, blob_rep);
+    fs.leanfs->files.InsertRawPayload({"/hello"}, blob_rep);
 
     int dir1_ino = fs.leanfs->AddInode({0, true});
     fs.leanfs->dentries.Insert({"dir1", root_inode_id}, {dir1_ino});
@@ -386,7 +384,7 @@ auto main(int argc, char **argv) -> int {
     fs.leanfs->dentries.Insert({"tmp.txt", dir1_ino}, {inserted_id});
     strcpy((char *)payload, "Temporary file in dir1");
     blob_rep = db->CreateNewBlob({payload, strlen((char *)payload)}, {}, false);
-    fs.adapter->InsertRawPayload({"/dir1/tmp.txt"}, blob_rep);
+    fs.leanfs->files.InsertRawPayload({"/dir1/tmp.txt"}, blob_rep);
 
     db->CommitTransaction();
   });

@@ -19,6 +19,7 @@ template <template <typename> class AdapterType>
 struct LeanFS {
   AdapterType<Inode> inodes;
   AdapterType<Dentry> dentries;
+  AdapterType<FileRelation> files;
 
   inline static thread_local Integer inode_id_counter = 0;
 
@@ -26,7 +27,8 @@ struct LeanFS {
   template <typename... Params>
   LeanFS(Params &&...params)
       : inodes(AdapterType<Inode>(std::forward<Params>(params)...)),
-        dentries(AdapterType<Dentry>(std::forward<Params>(params)...)) {}
+        dentries(AdapterType<Dentry>(std::forward<Params>(params)...)),
+        files(AdapterType<FileRelation>(std::forward<Params>(params)...)) {}
 
   // Methods
   auto AddInode(const Inode &record) -> Integer;
