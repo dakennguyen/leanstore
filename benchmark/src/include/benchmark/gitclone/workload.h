@@ -191,6 +191,7 @@ struct GitCloneWorkload {
     });
     Ensure(found);
     if (out_is_offrow) {
+      auto blob = reinterpret_cast<leanstore::BlobState *>(out_tuple);
       relation.LoadBlob(
         out_tuple,
         [&](std::span<const u8> blob_data) {
@@ -198,7 +199,8 @@ struct GitCloneWorkload {
           out_payload_size = blob_data.size();
           std::memcpy(out_payload.get(), blob_data.data(), blob_data.size());
         },
-        false);
+        blob->blob_size,
+        0);
     }
   }
 

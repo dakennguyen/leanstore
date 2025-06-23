@@ -82,13 +82,15 @@ struct WebserverWorkload {
       });
       Ensure(found);
 
+      auto blob = reinterpret_cast<leanstore::BlobState *>(blob_rep);
       html_relation.LoadBlob(
         blob_rep,
         [&](std::span<const u8> blob_data) {
           Ensure(blob_data.size() <= MAX_FILE_SIZE);
           std::memcpy(ws_payload, blob_data.data(), blob_data.size());
         },
-        false);
+        blob->blob_size,
+        0);
     }
 
     // 2. Append Log entry

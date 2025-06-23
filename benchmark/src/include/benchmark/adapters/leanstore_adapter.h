@@ -49,7 +49,7 @@ struct LeanStoreAdapter : Adapter<RecordBase> {
   // -------------------------------------------------------------------------------------
   auto RegisterBlob(std::span<u8> blob_payload, std::span<u8> prev_blob, bool likely_grow)
     -> std::span<const u8> override;
-  void LoadBlob(u8 *blob_handler, const std::function<void(std::span<const u8>)> &read_cb, off_t offset);
+  void LoadBlob(u8 *blob_handler, const std::function<void(std::span<const u8>)> &read_cb, u64 size, off_t offset);
   void RemoveBlob(u8 *blob_handler) override;
   auto LookUpBlob(std::span<uint8_t> blob_payload, const typename Adapter<RecordBase>::AccessRecordFunc &fn)
     -> bool override;

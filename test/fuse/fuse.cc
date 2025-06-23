@@ -243,8 +243,8 @@ struct LeanStoreFUSE {
     return ret;
   };
 
-  static auto Read(const char *path, char *buf, size_t size, off_t offset,
-                   [[maybe_unused]] struct fuse_file_info *fi) -> int {
+  static auto Read(const char *path, char *buf, size_t size, off_t offset, [[maybe_unused]] struct fuse_file_info *fi)
+    -> int {
     int ret = 0;
 
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
@@ -272,8 +272,8 @@ struct LeanStoreFUSE {
         return;
       }
 
-      obj->db->LoadBlob(
-        bh, [&](std::span<const u8> content) { std::memcpy(buf, content.data(), content.size()); }, size, offset);
+      obj->leanfs->files.LoadBlob(
+        blob_rep, [&](std::span<const u8> content) { std::memcpy(buf, content.data(), content.size()); }, size, offset);
 
       ret = std::min(size, bh->blob_size - offset);
       obj->db->CommitTransaction();
@@ -282,8 +282,8 @@ struct LeanStoreFUSE {
     return ret;
   }
 
-  static auto Write(const char *path, const char *buf, size_t size, off_t offset,
-                    struct fuse_file_info * /*unused*/) -> int {
+  static auto Write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info * /*unused*/)
+    -> int {
     // std::cout << path << " " << buf << " " << size << " " << offset << std::endl;
     int res = 0;
 
@@ -306,28 +306,40 @@ struct LeanStoreFUSE {
       }
       auto bh = reinterpret_cast<leanstore::BlobState *>(blob_rep);
 
-      std::span<const u8> span_bh2;
-      if (bh->blob_size == 0 || (u64)offset < bh->blob_size) {
+      std::span<const u8> updated_bh;
+      if (bh->blob_size == 0) {
+        // if (offset > 0) {
+        //   res = -EFAULT;
+        //   obj->db->CommitTransaction();
+        //   return;
+        // }
+        // New blob
+        u8 payload[size];
+        std::memcpy(payload, buf, size);
+        updated_bh = obj->leanfs->files.RegisterBlob({payload, size}, {}, false);
+      } else if ((u64)offset < bh->blob_size) {
         size_t payload_size = std::max(bh->blob_size, offset + size);
         auto payload        = std::make_unique<u8[]>(payload_size);
 
+        // Load the whole blob
         obj->leanfs->files.LoadBlob(
           blob_rep,
-          [&payload](std::span<const u8> content) { std::memcpy(payload.get(), content.data(), content.size()); }, 0);
+          [&payload](std::span<const u8> content) { std::memcpy(payload.get(), content.data(), content.size()); },
+          bh->blob_size, 0);
 
-        // Modify
+        // Replace everything
         std::memcpy(payload.get() + offset, buf, size);
         std::span<u8> payload_span(payload.get(), payload_size);
-        span_bh2 = obj->leanfs->files.RegisterBlob(payload_span, {}, false);
+        updated_bh = obj->leanfs->files.RegisterBlob(payload_span, {}, false);
       } else {
         // Append
         u8 payload[size];
         std::memcpy(payload, buf, size);
-        span_bh2 = obj->leanfs->files.RegisterBlob({payload, size}, blob_rep, true);
+        updated_bh = obj->leanfs->files.RegisterBlob({payload, size}, blob_rep, true);
       }
 
       // Update
-      obj->leanfs->files.UpdateRawPayload({path}, span_bh2, [&](const auto &) {});
+      obj->leanfs->files.UpdateRawPayload({path}, updated_bh, [&](const auto &) {});
 
       res = size;
       obj->db->CommitTransaction();

@@ -206,13 +206,15 @@ struct YCSBWorkload : public YCSBWorkloadInterface {
       });
       Ensure(found);
       // Read Blob data using Blob Rep
+      auto blob = reinterpret_cast<leanstore::BlobState *>(blob_rep);
       relation.LoadBlob(
         blob_rep,
         [&](std::span<const u8> blob_data) {
           Ensure((blob_data.size() >= FLAGS_ycsb_payload_size) && (blob_data.size() <= FLAGS_ycsb_max_payload_size));
           std::memcpy(payload, blob_data.data(), blob_data.size());
         },
-        false);
+        blob->blob_size,
+        0);
     } else {
       // Generate a new random BLOB
       auto payload_sz = YCSBWorkloadInterface::PayloadSize();

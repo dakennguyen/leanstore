@@ -146,11 +146,11 @@ auto LeanStoreAdapter<RecordBase>::RegisterBlob(std::span<u8> blob_payload, std:
 
 template <class RecordBase>
 void LeanStoreAdapter<RecordBase>::LoadBlob(u8 *blob_handler, const std::function<void(std::span<const u8>)> &read_cb,
-                                            off_t offset) {
+                                            u64 size, off_t offset) {
   auto blob = reinterpret_cast<leanstore::BlobState *>(blob_handler);
   Ensure((leanstore::BlobState::MIN_MALLOC_SIZE <= blob->MallocSize()) &&
          (leanstore::BlobState::MAX_MALLOC_SIZE >= blob->MallocSize()));
-  db_->LoadBlob(blob, read_cb, offset);
+  db_->LoadBlob(blob, read_cb, size, offset);
 }
 
 template <class RecordBase>

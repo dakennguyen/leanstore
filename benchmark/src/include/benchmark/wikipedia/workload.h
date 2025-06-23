@@ -141,6 +141,7 @@ struct WikipediaReadOnly {
     });
     Ensure(found);
     if (is_offrow) {
+      auto blob = reinterpret_cast<leanstore::BlobState *>(tuple);
       relation.LoadBlob(
         tuple,
         [&](std::span<const u8> blob_data) {
@@ -148,7 +149,8 @@ struct WikipediaReadOnly {
           payload.reset(reinterpret_cast<uint8_t *>(malloc(blob_data.size())));
           std::memcpy(payload.get(), blob_data.data(), blob_data.size());
         },
-        false);
+        blob->blob_size,
+        0);
     }
   }
 };
