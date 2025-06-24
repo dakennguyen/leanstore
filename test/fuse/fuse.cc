@@ -318,6 +318,12 @@ struct LeanStoreFUSE {
         std::memcpy(payload, buf, size);
         updated_bh = obj->leanfs->files.RegisterBlob({payload, size}, {}, false);
       } else if ((u64)offset < bh->blob_size) {
+
+        // Not supported for now
+        res = -EPERM;
+        obj->db->CommitTransaction();
+        return;
+
         size_t payload_size = std::max(bh->blob_size, offset + size);
         auto payload        = std::make_unique<u8[]>(payload_size);
 
