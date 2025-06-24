@@ -422,7 +422,7 @@ TEST_P(TestBlobManager, InsertNewBlob2) {
   blob_manager_->AllocateBlob(blob_payload, nullptr, blob_likely_grow);
 
   // Load partially
-  u8 *stored_blob_ptr1 = new u8[BLOB_SIZE];
+  u8 *stored_blob_ptr1 = new u8[BLOB_SIZE]();
   EXPECT_EQ(std::memcmp(stored_blob_ptr1, random_blob_[0], PAGE_SIZE), -97);
   blob_manager_->LoadBlob(BlobManager::active_blob, PAGE_SIZE, [&](std::span<const u8> blob) {
     EXPECT_EQ(blob.size(), PAGE_SIZE);
@@ -433,7 +433,7 @@ TEST_P(TestBlobManager, InsertNewBlob2) {
   delete[] stored_blob_ptr1;
 
   // Load fully
-  u8 *stored_blob_ptr2 = new u8[BLOB_SIZE];
+  u8 *stored_blob_ptr2 = new u8[BLOB_SIZE]();
   blob_manager_->LoadBlob(BlobManager::active_blob, BlobManager::active_blob->blob_size, [&](std::span<const u8> blob) {
     EXPECT_EQ(blob.size(), BLOB_SIZE);
     std::memcpy(stored_blob_ptr2, blob.data(), blob.size());
@@ -444,7 +444,7 @@ TEST_P(TestBlobManager, InsertNewBlob2) {
   // Load using offset
   off_t offset = 5183;
   u64 size = BLOB_SIZE - offset;
-  u8 *stored_blob_ptr3 = new u8[BLOB_SIZE];
+  u8 *stored_blob_ptr3 = new u8[BLOB_SIZE]();
   blob_manager_->LoadBlob(BlobManager::active_blob, size, [&](std::span<const u8> blob) {
     EXPECT_EQ(blob.size(), size);
     std::memcpy(stored_blob_ptr3, blob.data(), blob.size());
@@ -454,11 +454,11 @@ TEST_P(TestBlobManager, InsertNewBlob2) {
 }
 
 static constexpr auto TEST_SET{[]() constexpr {
-  std::array<std::tuple<int, bool, bool>, 1> result{};
+  std::array<std::tuple<int, bool, bool>, 2> result{};
   auto idx = 0;
   for (int var : {1}) {
     for (bool likely_grow : {false}) {
-      for (bool norm_bm : {false}) { result[idx++] = {var, likely_grow, norm_bm}; }
+      for (bool norm_bm : {false, true}) { result[idx++] = {var, likely_grow, norm_bm}; }
     }
   }
   return result;

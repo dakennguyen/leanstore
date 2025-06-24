@@ -84,25 +84,26 @@ PageAliasGuard::PageAliasGuard(buffer::BufferManager *buffer, const BlobState &b
     : buffer_(buffer) {
   // FLAGS_blob_normal_buffer_pool: 2nd extra overhead
   if (FLAGS_blob_normal_buffer_pool) {
+    required_load_size += offset;
     ptr_       = reinterpret_cast<u8 *>(malloc(required_load_size));
-    u64 offset = 0;
+    u64 size = 0;
     size_t idx = 0;
-    for (; (idx < blob.extents.NumberOfExtents()) && (offset < required_load_size); idx++) {
-      auto copy_size = std::min(required_load_size - offset, ExtentList::ExtentSize(idx) * PAGE_SIZE);
+    for (; (idx < blob.extents.NumberOfExtents()) && (size < required_load_size); idx++) {
+      auto copy_size = std::min(required_load_size - size, ExtentList::ExtentSize(idx) * PAGE_SIZE);
       buffer->ChunkOperation(blob.extents.extent_pid[idx], copy_size, [&](u64 off, std::span<u8> payload) {
-        std::memcpy(&ptr_[offset + off], payload.data(), payload.size());
+        std::memcpy(&ptr_[size + off], payload.data(), payload.size());
       });
-      offset += copy_size;
+      size += copy_size;
     }
-    if (blob.extents.special_blk.in_used && offset < required_load_size) {
+    if (blob.extents.special_blk.in_used && size < required_load_size) {
       Ensure(idx++ == blob.extents.NumberOfExtents());
-      auto copy_size = std::min(required_load_size - offset, blob.extents.special_blk.page_cnt * PAGE_SIZE);
+      auto copy_size = std::min(required_load_size - size, blob.extents.special_blk.page_cnt * PAGE_SIZE);
       buffer->ChunkOperation(blob.extents.special_blk.start_pid, copy_size, [&](u64 off, std::span<u8> payload) {
-        std::memcpy(&ptr_[offset + off], payload.data(), payload.size());
+        std::memcpy(&ptr_[size + off], payload.data(), payload.size());
       });
-      offset += copy_size;
+      size += copy_size;
     }
-    Ensure(offset >= required_load_size);
+    Ensure(size >= required_load_size);
     return;
   }
 
@@ -501,7 +502,11 @@ void BlobManager::LoadBlob(const BlobState *blob, u64 required_load_size, const 
 
   LoadBlobContent(blob, required_load_size, offset);
   auto guard = PageAliasGuard(buffer_, *blob, required_load_size, offset);
-  cb({guard.GetPtr(), required_load_size});
+  if (FLAGS_blob_normal_buffer_pool) {
+    cb({guard.GetPtr() + offset, required_load_size});
+  } else {
+    cb({guard.GetPtr(), required_load_size});
+  }
 }
 
 void BlobManager::UnloadAllBlobs() {
