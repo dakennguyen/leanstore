@@ -14,6 +14,7 @@
 #include <string>
 
 #define FUSE_IOCTL_SET_SORT_STR _IOW('f', 1, char[128])
+#define ROOT_INO 0
 
 struct LeanStoreFUSE {
   static LeanStoreFUSE *obj;
@@ -29,7 +30,7 @@ struct LeanStoreFUSE {
   // This function need to be wrapped in a transaction
   static auto GetInodeFromPath(const std::string &str_path) -> int {
     auto path_str = str_path;
-    if (path_str == "/") { return 0; }
+    if (path_str == "/") { return ROOT_INO; }
     if (path_str.back() == '/') { path_str.pop_back(); }
 
     size_t pos            = path_str.find_last_of('/');
@@ -53,6 +54,7 @@ struct LeanStoreFUSE {
     if (str_path == "/") {
       stbuf->st_mode  = S_IFDIR | 0777;
       stbuf->st_nlink = 2;
+      stbuf->st_ino   = ROOT_INO;
       return res;
     }
 
@@ -68,6 +70,7 @@ struct LeanStoreFUSE {
 
       stbuf->st_uid   = getuid();
       stbuf->st_gid   = getgid();
+      stbuf->st_ino   = ino;
       stbuf->st_atime = stbuf->st_mtime = stbuf->st_ctime = time(nullptr);
 
       bool is_directory = obj->leanfs->inodes.LookupField({ino}, &leanstore::fuse::Inode::is_directory);
@@ -358,6 +361,7 @@ struct LeanStoreFUSE {
   static auto Init(struct fuse_conn_info *conn, struct fuse_config *cfg) -> void * {
     conn->max_readahead = 1024 * 1024;
     cfg->direct_io      = 1;
+    cfg->use_ino        = 1;
 
     return nullptr;
   }
