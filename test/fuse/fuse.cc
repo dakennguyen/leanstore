@@ -318,7 +318,6 @@ struct LeanStoreFUSE {
         std::memcpy(payload, buf, size);
         updated_bh = obj->leanfs->files.RegisterBlob({payload, size}, {}, false);
       } else if ((u64)offset < bh->blob_size) {
-
         // Not supported for now
         res = -EPERM;
         obj->db->CommitTransaction();
@@ -352,6 +351,13 @@ struct LeanStoreFUSE {
     });
 
     return res;
+  }
+
+  static auto Init(struct fuse_conn_info *conn, struct fuse_config *cfg) -> void * {
+    conn->max_readahead = 1024 * 1024;
+    cfg->direct_io      = 1;
+
+    return nullptr;
   }
 };
 
@@ -411,6 +417,7 @@ auto main(int argc, char **argv) -> int {
   });
 
   static struct fuse_operations fs_oper;
+  fs_oper.init     = LeanStoreFUSE::Init;
   fs_oper.getattr  = LeanStoreFUSE::GetAttr;
   fs_oper.mkdir    = LeanStoreFUSE::MkDir;
   fs_oper.unlink   = LeanStoreFUSE::Unlink;
