@@ -22,6 +22,7 @@ struct LeanFS {
   AdapterType<FileRelation> files;
 
   inline static thread_local Integer inode_id_counter = 0;
+  inline static thread_local Integer dentry_id_counter = 0;
 
   // Constructor
   template <typename... Params>
@@ -32,7 +33,8 @@ struct LeanFS {
 
   // Methods
   auto AddInode(const Inode &record) -> Integer;
-  auto RemoveInode(Integer ino_id) -> void;
+  auto RemoveDentry(Dentry::Key dentry_key) -> void;
+  auto AddDentry(Varchar<128> file_name, Integer parent_dentry_id, const Dentry &record) -> Integer;
 
 };
 

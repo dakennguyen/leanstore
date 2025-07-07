@@ -15,6 +15,7 @@
 
 #define FUSE_IOCTL_SET_SORT_STR _IOW('f', 1, char[128])
 #define ROOT_INO 0
+#define ROOT_DENTRY_ID 0
 
 struct LeanStoreFUSE {
   static LeanStoreFUSE *obj;
@@ -28,9 +29,11 @@ struct LeanStoreFUSE {
 
  private:
   // This function need to be wrapped in a transaction
-  static auto GetInodeFromPath(const std::string &str_path) -> int {
-    auto path_str = str_path;
-    if (path_str == "/") { return ROOT_INO; }
+  static auto GetDentryFromPath(const std::string &str_path)
+    -> std::tuple<leanstore::fuse::Dentry::Key, leanstore::fuse::Dentry> {
+    auto path_str                  = str_path;
+    leanstore::fuse::Dentry dentry = {};
+    if (path_str == "/") { return {{ROOT_DENTRY_ID, ".", ROOT_DENTRY_ID}, {ROOT_INO}}; }
     if (path_str.back() == '/') { path_str.pop_back(); }
 
     size_t pos            = path_str.find_last_of('/');
@@ -38,11 +41,17 @@ struct LeanStoreFUSE {
     auto filename         = path_str.substr(pos + 1);
     auto filename_varchar = Varchar<128>(strdup(filename.c_str()));
 
-    auto parent_inode_id = GetInodeFromPath(parent);
-    int ino              = -1;
-    obj->leanfs->dentries.LookUp({filename_varchar, parent_inode_id},
-                                 [&](const auto &rec) { ino = rec.target_inode_id; });
-    return ino;
+    auto parent_dentry_id                   = std::get<0>(GetDentryFromPath(parent)).id;
+    leanstore::fuse::Dentry::Key dentry_key = {-1, "", -1};
+    obj->leanfs->dentries.Scan({{}, filename_varchar, parent_dentry_id}, [&](const auto &key, const auto &rec) {
+      if (key.file_name == filename_varchar && key.parent_dentry_id == parent_dentry_id) {
+        dentry_key = key;
+        dentry     = rec;
+        return true;
+      }
+      return false;
+    });
+    return {dentry_key, dentry};
   }
 
  public:
@@ -60,9 +69,8 @@ struct LeanStoreFUSE {
 
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
       obj->db->StartTransaction();
-      int ino = -1;
-      ino     = GetInodeFromPath(str_path);
-      if (ino == -1) {
+      auto [dentry_key, dentry] = GetDentryFromPath(str_path);
+      if (dentry_key.id == -1) {
         res = -ENOENT;
         obj->db->CommitTransaction();
         return;
@@ -70,10 +78,11 @@ struct LeanStoreFUSE {
 
       stbuf->st_uid   = getuid();
       stbuf->st_gid   = getgid();
-      stbuf->st_ino   = ino;
+      stbuf->st_ino   = dentry.target_inode_id;
       stbuf->st_atime = stbuf->st_mtime = stbuf->st_ctime = time(nullptr);
 
-      bool is_directory = obj->leanfs->inodes.LookupField({ino}, &leanstore::fuse::Inode::is_directory);
+      bool is_directory =
+        obj->leanfs->inodes.LookupField({dentry.target_inode_id}, &leanstore::fuse::Inode::is_directory);
       if (is_directory) {
         stbuf->st_mode  = S_IFDIR | 0777;
         stbuf->st_nlink = 2;
@@ -113,9 +122,8 @@ struct LeanStoreFUSE {
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
       obj->db->StartTransaction();
 
-      int parent_inode_id = -1;
-      parent_inode_id     = GetInodeFromPath(parent);
-      if (parent_inode_id == -1) {
+      auto [dentry_key, _] = GetDentryFromPath(parent);
+      if (dentry_key.id == -1) {
         ret = -ENOENT;
         obj->db->CommitTransaction();
         return;
@@ -123,7 +131,7 @@ struct LeanStoreFUSE {
 
       int ino = obj->leanfs->AddInode({0, false});
 
-      obj->leanfs->dentries.Insert({Varchar<128>(strdup(filename.c_str())), parent_inode_id}, {ino});
+      obj->leanfs->AddDentry(Varchar<128>(strdup(filename.c_str())), dentry_key.id, {ino});
       obj->leanfs->files.Insert({path}, {});
       obj->db->CommitTransaction();
     });
@@ -160,22 +168,19 @@ struct LeanStoreFUSE {
     auto parent   = str_path.substr(0, pos + 1);
     auto filename = str_path.substr(pos + 1);
 
-    int parent_inode_id = -1;
-    int ino;
-
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
       obj->db->StartTransaction();
 
-      parent_inode_id = GetInodeFromPath(parent);
-      if (parent_inode_id == -1) {
+      auto [dentry_key, _] = GetDentryFromPath(parent);
+      if (dentry_key.id == -1) {
         ret = -ENOENT;
         return;
       }
 
-      ino = obj->leanfs->AddInode({0, true});
-      obj->leanfs->dentries.Insert({Varchar<128>(strdup(filename.c_str())), parent_inode_id}, {ino});
-      obj->leanfs->dentries.Insert({Varchar<128>("."), ino}, {ino});
-      obj->leanfs->dentries.Insert({Varchar<128>(".."), ino}, {parent_inode_id});
+      int ino = obj->leanfs->AddInode({0, true});
+      obj->leanfs->AddDentry(Varchar<128>(strdup(filename.c_str())), dentry_key.id, {ino});
+      obj->leanfs->AddDentry(Varchar<128>("."), ino, {ino});
+      obj->leanfs->AddDentry(Varchar<128>(".."), ino, {dentry_key.id});
 
       obj->db->CommitTransaction();
     });
@@ -189,15 +194,15 @@ struct LeanStoreFUSE {
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
       obj->db->StartTransaction();
 
-      int parent_inode_id = -1;
-      parent_inode_id     = GetInodeFromPath(path);
-      if (parent_inode_id == -1) {
+      int parent_dentry_id = -1;
+      parent_dentry_id     = std::get<0>(GetDentryFromPath(path)).id;
+      if (parent_dentry_id == -1) {
         ret = -ENOENT;
         return;
       }
 
-      obj->leanfs->dentries.Scan({{}, parent_inode_id}, [&](const auto &key, const auto &) {
-        if (key.parent_inode_id == parent_inode_id) {
+      obj->leanfs->dentries.Scan({{}, {}, parent_dentry_id}, [&](const auto &key, const auto &) {
+        if (key.parent_dentry_id == parent_dentry_id) {
           filler(buf, key.file_name.CStr(), nullptr, 0, static_cast<fuse_fill_dir_flags>(0));
           return true;
         }
@@ -216,15 +221,16 @@ struct LeanStoreFUSE {
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
       obj->db->StartTransaction();
 
-      int ino = -1;
-      ino     = GetInodeFromPath(path);
-      if (ino == -1) {
+      auto [dentry_key, dentry] = GetDentryFromPath(path);
+      if (dentry_key.id == -1) {
         ret = -ENOENT;
         obj->db->CommitTransaction();
         return;
       }
 
-      obj->leanfs->RemoveInode(ino);
+      // Remove inode and dentry
+      obj->leanfs->inodes.Erase({dentry.target_inode_id});
+      obj->leanfs->RemoveDentry(dentry_key);
 
       // Remove blob
       u8 blob_rep[leanstore::BlobState::MAX_MALLOC_SIZE];
@@ -394,37 +400,37 @@ auto main(int argc, char **argv) -> int {
   db->worker_pool.ScheduleSyncJob(0, [&]() {
     db->StartTransaction();
 
-    auto root_inode_id = fs.leanfs->AddInode({0, true});
-    fs.leanfs->dentries.Insert({".", root_inode_id}, {root_inode_id});
-    fs.leanfs->dentries.Insert({"..", root_inode_id}, {root_inode_id});
+    auto root_inode_id  = fs.leanfs->AddInode({0, true});
+    auto root_dentry_id = fs.leanfs->AddDentry(".", ROOT_DENTRY_ID, {root_inode_id});
+    fs.leanfs->AddDentry("..", ROOT_DENTRY_ID, {root_inode_id});
 
     auto inserted_id = fs.leanfs->AddInode({0, false});
-    fs.leanfs->dentries.Insert({"blob", root_inode_id}, {inserted_id});
+    fs.leanfs->AddDentry("blob", root_dentry_id, {inserted_id});
     u8 payload[12288];
     for (auto idx = 0; idx < 12288; idx++) { payload[idx] = 97 + idx % 10; }
     auto blob_rep = db->CreateNewBlob({payload, 12288}, {}, false);
     fs.leanfs->files.InsertRawPayload({"/blob"}, blob_rep);
 
     inserted_id = fs.leanfs->AddInode({0, false});
-    fs.leanfs->dentries.Insert({"blob2", root_inode_id}, {inserted_id});
+    fs.leanfs->AddDentry("blob2", root_dentry_id, {inserted_id});
     u8 payload2[4096];
     for (unsigned char &byte : payload2) { byte = 124; }
     auto blob_rep2 = db->CreateNewBlob({payload2, 4096}, {}, false);
     fs.leanfs->files.InsertRawPayload({"/blob2"}, blob_rep2);
 
     inserted_id = fs.leanfs->AddInode({0, false});
-    fs.leanfs->dentries.Insert({"hello", root_inode_id}, {inserted_id});
+    fs.leanfs->AddDentry("hello", root_dentry_id, {inserted_id});
     strcpy((char *)payload, "Hello World!");
     blob_rep = db->CreateNewBlob({payload, strlen((char *)payload)}, {}, false);
     fs.leanfs->files.InsertRawPayload({"/hello"}, blob_rep);
 
-    int dir1_ino = fs.leanfs->AddInode({0, true});
-    fs.leanfs->dentries.Insert({"dir1", root_inode_id}, {dir1_ino});
-    fs.leanfs->dentries.Insert({".", dir1_ino}, {dir1_ino});
-    fs.leanfs->dentries.Insert({"..", dir1_ino}, {root_inode_id});
+    int dir1_ino    = fs.leanfs->AddInode({0, true});
+    int dir1_dentry = fs.leanfs->AddDentry("dir1", root_dentry_id, {dir1_ino});
+    fs.leanfs->AddDentry(".", dir1_dentry, {dir1_ino});
+    fs.leanfs->AddDentry("..", dir1_dentry, {root_inode_id});
 
     inserted_id = fs.leanfs->AddInode({0, false});
-    fs.leanfs->dentries.Insert({"tmp.txt", dir1_ino}, {inserted_id});
+    fs.leanfs->AddDentry("tmp.txt", dir1_dentry, {inserted_id});
     strcpy((char *)payload, "Temporary file in dir1");
     blob_rep = db->CreateNewBlob({payload, strlen((char *)payload)}, {}, false);
     fs.leanfs->files.InsertRawPayload({"/dir1/tmp.txt"}, blob_rep);

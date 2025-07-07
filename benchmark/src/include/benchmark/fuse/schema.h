@@ -61,8 +61,9 @@ struct Inode {
 
 struct Dentry {
   struct Key {
+    Integer id;
     Varchar<128> file_name;
-    Integer parent_inode_id;
+    Integer parent_dentry_id;
   };
 
   Integer target_inode_id;
@@ -70,18 +71,20 @@ struct Dentry {
   auto PayloadSize() const -> uint32_t { return sizeof(Dentry); }
 
   static auto FoldKey(uint8_t *out, const Dentry::Key &key) -> uint16_t {
-    auto pos = Fold(out, key.parent_inode_id);
+    auto pos = Fold(out, key.parent_dentry_id);
     pos += Fold(out + pos, key.file_name);
+    pos += Fold(out + pos, key.id);
     return pos;
   }
 
   static auto UnfoldKey(const uint8_t *in, Dentry::Key &key) -> uint16_t {
-    auto pos = Unfold(in, key.parent_inode_id);
+    auto pos = Unfold(in, key.parent_dentry_id);
     pos += Unfold(in + pos, key.file_name);
+    pos += Unfold(in + pos, key.id);
     return pos;
   }
 
-  static auto MaxFoldLength() -> uint32_t { return 0 + sizeof(Key::parent_inode_id) + sizeof(Key::file_name); }
+  static auto MaxFoldLength() -> uint32_t { return 0 + sizeof(Key::parent_dentry_id) + sizeof(Key::file_name) + sizeof(Key::id); }
 };
 
 }  // namespace leanstore::fuse
