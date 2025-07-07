@@ -13,6 +13,8 @@
 #include <iostream>
 #include <string>
 
+#define FUSE_IOCTL_SET_SORT_STR _IOW('f', 1, char[128])
+
 struct LeanStoreFUSE {
   static LeanStoreFUSE *obj;
   leanstore::LeanStore *db;
@@ -359,6 +361,16 @@ struct LeanStoreFUSE {
 
     return nullptr;
   }
+
+  static auto Ioctl(const char *path, unsigned int cmd, void *arg, struct fuse_file_info *fi, unsigned int flags,
+                    void *data) {
+    if (cmd == FUSE_IOCTL_SET_SORT_STR) {
+      char *str = static_cast<char *>(data);
+      std::cout << "DEBUG str: " << str << std::endl;
+      return 0;
+    }
+    return -ENOTTY;
+  }
 };
 
 LeanStoreFUSE *LeanStoreFUSE::obj;
@@ -418,6 +430,7 @@ auto main(int argc, char **argv) -> int {
 
   static struct fuse_operations fs_oper;
   fs_oper.init     = LeanStoreFUSE::Init;
+  fs_oper.ioctl    = LeanStoreFUSE::Ioctl;
   fs_oper.getattr  = LeanStoreFUSE::GetAttr;
   fs_oper.mkdir    = LeanStoreFUSE::MkDir;
   fs_oper.unlink   = LeanStoreFUSE::Unlink;
