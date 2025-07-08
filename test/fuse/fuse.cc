@@ -131,7 +131,7 @@ struct LeanStoreFUSE {
 
       int ino = obj->leanfs->AddInode({0, false});
 
-      obj->leanfs->AddDentry(Varchar<128>(strdup(filename.c_str())), dentry_key.id, {ino});
+      obj->leanfs->AddDentry(strdup(filename.c_str()), dentry_key.id, {ino});
       obj->leanfs->files.Insert({path}, {});
       obj->db->CommitTransaction();
     });
@@ -171,16 +171,16 @@ struct LeanStoreFUSE {
     obj->db->worker_pool.ScheduleSyncJob(0, [&]() {
       obj->db->StartTransaction();
 
-      auto [dentry_key, _] = GetDentryFromPath(parent);
-      if (dentry_key.id == -1) {
+      auto [parent_dentry_key, parent_dentry_rec] = GetDentryFromPath(parent);
+      if (parent_dentry_key.id == -1) {
         ret = -ENOENT;
         return;
       }
 
       int ino = obj->leanfs->AddInode({0, true});
-      obj->leanfs->AddDentry(Varchar<128>(strdup(filename.c_str())), dentry_key.id, {ino});
-      obj->leanfs->AddDentry(Varchar<128>("."), ino, {ino});
-      obj->leanfs->AddDentry(Varchar<128>(".."), ino, {dentry_key.id});
+      int dentry = obj->leanfs->AddDentry(strdup(filename.c_str()), parent_dentry_key.id, {ino});
+      obj->leanfs->AddDentry(".", dentry, {ino});
+      obj->leanfs->AddDentry("..", dentry, {parent_dentry_rec.target_inode_id});
 
       obj->db->CommitTransaction();
     });
