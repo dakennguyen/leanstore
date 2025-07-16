@@ -7,7 +7,7 @@
 
 #include <cstring>
 
-using FilePath = Varchar<128>;
+using FilePath = Varchar<256>;
 
 namespace leanstore::fuse {
 
@@ -62,7 +62,7 @@ struct Inode {
 struct Dentry {
   struct Key {
     Integer id;
-    Varchar<128> file_name;
+    Varchar<256> file_name;
     Integer parent_dentry_id;
   };
 

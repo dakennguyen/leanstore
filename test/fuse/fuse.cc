@@ -39,7 +39,7 @@ struct LeanStoreFUSE {
     size_t pos            = path_str.find_last_of('/');
     auto parent           = path_str.substr(0, pos + 1);
     auto filename         = path_str.substr(pos + 1);
-    auto filename_varchar = Varchar<128>(strdup(filename.c_str()));
+    auto filename_varchar = Varchar<256>(strdup(filename.c_str()));
 
     auto parent_dentry_id                   = std::get<0>(GetDentryFromPath(parent)).id;
     leanstore::fuse::Dentry::Key dentry_key = {-1, "", -1};

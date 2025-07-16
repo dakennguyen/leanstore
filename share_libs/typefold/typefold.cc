@@ -69,5 +69,5 @@ auto Unfold(const uint8_t *input, Varchar<Leng> &x) -> uint16_t {
 
 template auto Fold<16>(uint8_t *writer, const Varchar<16> &x) -> uint16_t;
 template auto Unfold<16>(const uint8_t *input, Varchar<16> &x) -> uint16_t;
-template auto Fold<128>(uint8_t *writer, const Varchar<128> &x) -> uint16_t;
-template auto Unfold<128>(const uint8_t *input, Varchar<128> &x) -> uint16_t;
+template auto Fold<256>(uint8_t *writer, const Varchar<256> &x) -> uint16_t;
+template auto Unfold<256>(const uint8_t *input, Varchar<256> &x) -> uint16_t;

@@ -34,7 +34,7 @@ struct LeanFS {
   // Methods
   auto AddInode(const Inode &record) -> Integer;
   auto RemoveDentry(Dentry::Key dentry_key) -> void;
-  auto AddDentry(Varchar<128> file_name, Integer parent_dentry_id, const Dentry &record) -> Integer;
+  auto AddDentry(Varchar<256> file_name, Integer parent_dentry_id, const Dentry &record) -> Integer;
 
 };
 

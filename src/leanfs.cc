@@ -28,7 +28,7 @@ auto LeanFS<AdapterType>::RemoveDentry(Dentry::Key dentry_key) -> void {
 }
 
 template <template <typename> class AdapterType>
-auto LeanFS<AdapterType>::AddDentry(Varchar<128> file_name, Integer parent_dentry_id, const Dentry &record) -> Integer {
+auto LeanFS<AdapterType>::AddDentry(Varchar<256> file_name, Integer parent_dentry_id, const Dentry &record) -> Integer {
   dentries.Insert({dentry_id_counter, file_name, parent_dentry_id}, record);
   return dentry_id_counter++;
 }
