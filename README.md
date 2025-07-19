@@ -45,7 +45,7 @@ For debuging and testing:
 
 Read with offset:
 
-    dd if=/mnt/test4/blob bs=123 count=1 skip=2 iflag=direct
+    dd if=/mnt/leanfs/blob bs=123 count=1 skip=2 iflag=direct
 
 Filebench:
 

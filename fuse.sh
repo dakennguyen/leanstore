@@ -1,1 +1,1 @@
-./build/test/LeanStoreFUSE -d -s -f /home/khoa/mnt/test4
+./build/test/LeanStoreFUSE -d -s -f /mnt/leanfs

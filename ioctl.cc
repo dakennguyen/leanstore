@@ -7,7 +7,7 @@
 #define FUSE_IOCTL_SET_SORT_STR _IOW('f', 1, char[128])
 
 int main() {
-    const char* path = "/mnt/test4";
+    const char* path = "/mnt/leanfs";
     int fd = open(path, O_RDONLY | O_DIRECTORY);
     if (fd < 0) {
         perror("open");

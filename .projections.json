@@ -1,10 +1,10 @@
 {
   "*": {
     "make": "cd build3 && cmake -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON .. && make -j8",
-    "start": "leanfs3 -s -d -f /home/khoa/mnt/test4"
+    "start": "leanfs3 -s -d -f -o max_read=1048576 /mnt/leanfs"
   },
   "*.fio": {
-    "dispatch": "fio --directory=/home/khoa/mnt/test4 %"
+    "dispatch": "fio --directory=/mnt/leanfs %"
   },
   "src/*.cc": {
     "alternate": "test/{dirname}/test_{basename}.cc",
