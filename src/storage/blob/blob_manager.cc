@@ -112,17 +112,20 @@ PageAliasGuard::PageAliasGuard(buffer::BufferManager *buffer, const BlobState &b
   ptr_           = reinterpret_cast<u8 *>(buffer_->ToPtr(alias_pid));
 
   // Prepare the aliasing params
-  u64 alias_size = 0;
-  size_t idx     = 0;
-  size_t count = 0;
+  u64 alias_size    = 0;
+  size_t idx        = 0;
+  size_t count      = 0;
+  off_t start_byte  = 0;
+  u64 prev_page_cnt = 0;
   for (; (idx < blob.extents.NumberOfExtents()) && (alias_size < required_load_size); idx++) {
     auto extent = blob.extents[idx];
-    off_t start_byte = (extent.start_pid - 1) * PAGE_SIZE;
+    start_byte += prev_page_cnt * PAGE_SIZE;
     off_t end_byte = start_byte + extent.page_cnt * PAGE_SIZE - 1;
+    prev_page_cnt  = extent.page_cnt;
     if (offset > end_byte) { continue; }
 
     auto target_page_idx = offset < start_byte ? 0 : (offset - start_byte) / PAGE_SIZE;
-    auto target_pid = extent.start_pid + target_page_idx;
+    auto target_pid      = extent.start_pid + target_page_idx;
     auto target_page_cnt = std::min(extent.page_cnt - target_page_idx, required_load_size / PAGE_SIZE + 1);
 
     assert(target_page_cnt <= EXMAP_PAGE_MAX_PAGES);
@@ -265,13 +268,16 @@ void BlobManager::LoadBlobContent(const BlobState *blob, u64 required_load_size,
   // Try to load all extents until meets the requirement
   u64 load_size = 0;
   LargePageList to_read_extents;
+  off_t start_byte  = 0;
+  u64 prev_page_cnt = 0;
   for (auto &extent : blob->extents) {
-    off_t start_byte = (extent.start_pid - 1) * PAGE_SIZE;
+    start_byte += prev_page_cnt * PAGE_SIZE;
     off_t end_byte = start_byte + extent.page_cnt * PAGE_SIZE - 1;
+    prev_page_cnt  = extent.page_cnt;
     if (offset > end_byte) { continue; }
 
     auto target_page_idx = offset < start_byte ? 0 : (offset - start_byte) / PAGE_SIZE;
-    auto target_pid = extent.start_pid + target_page_idx;
+    auto target_pid      = extent.start_pid + target_page_idx;
     auto target_page_cnt = std::min(extent.page_cnt - target_page_idx, required_load_size / PAGE_SIZE + 1);
 
     if (!extent_loaded.contains(target_pid)) {

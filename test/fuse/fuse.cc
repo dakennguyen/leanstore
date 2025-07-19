@@ -407,7 +407,15 @@ auto main(int argc, char **argv) -> int {
     auto inserted_id = fs.leanfs->AddInode({0, false});
     fs.leanfs->AddDentry("blob", root_dentry_id, {inserted_id});
     u8 payload[12288];
-    for (auto idx = 0; idx < 12288; idx++) { payload[idx] = 97 + idx % 10; }
+    for (auto idx = 0; idx < 12288; idx++) {
+      if (idx == 2309 || idx == 2323) {
+        payload[idx] = 48;
+      } else if (idx == 10501 || idx == 10515) {
+        payload[idx] = 49;
+      } else {
+        payload[idx] = 97 + idx % 10;
+      }
+    }
     auto blob_rep = db->CreateNewBlob({payload, 12288}, {}, false);
     fs.leanfs->files.InsertRawPayload({"/blob"}, blob_rep);
 
