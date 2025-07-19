@@ -366,8 +366,11 @@ struct LeanStoreFUSE {
 
   static auto Init(struct fuse_conn_info *conn, struct fuse_config *cfg) -> void * {
     conn->max_readahead = 1024 * 1024;
-    cfg->direct_io      = 1;
-    cfg->use_ino        = 1;
+    conn->max_read      = 1024 * 1024;
+    // conn->want |= FUSE_CAP_WRITEBACK_CACHE;
+    // conn->max_write = 1024 * 1024;
+    // cfg->direct_io      = 1;
+    // cfg->use_ino        = 1;
 
     return nullptr;
   }
@@ -391,7 +394,7 @@ auto main(int argc, char **argv) -> int {
   FLAGS_worker_count   = 1;
   FLAGS_bm_virtual_gb  = 128;
   FLAGS_bm_physical_gb = 32;
-  FLAGS_db_path        = "/dev/nvme0n1";
+  FLAGS_db_path        = "/dev/sdb";
   auto db              = std::make_unique<leanstore::LeanStore>();
   auto fs              = LeanStoreFUSE(db.get());
   LeanStoreFUSE::obj   = &fs;
@@ -452,6 +455,7 @@ auto main(int argc, char **argv) -> int {
   fs_oper.getattr  = LeanStoreFUSE::GetAttr;
   fs_oper.mkdir    = LeanStoreFUSE::MkDir;
   fs_oper.unlink   = LeanStoreFUSE::Unlink;
+  fs_oper.rmdir    = LeanStoreFUSE::Unlink;
   fs_oper.chown    = LeanStoreFUSE::Chown;
   fs_oper.truncate = LeanStoreFUSE::Truncate;
   fs_oper.open     = LeanStoreFUSE::Open;
