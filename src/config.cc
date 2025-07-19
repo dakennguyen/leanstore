@@ -38,7 +38,7 @@ DEFINE_string(txn_default_isolation_level, "ru",
 // -----------------------------------------------------------------------------------
 /* BLOB */
 DEFINE_bool(blob_tail_extent, true, "Whether to enable Tail Extent or not");
-DEFINE_bool(blob_normal_buffer_pool, true,
+DEFINE_bool(blob_normal_buffer_pool, false,
             "Extra overheads to emulate normal buffer pool"
             "1. *IMPORTANT* PageAliasGuard(): malloc() and memcpy() all the extents"
             "2. *IMPORTANT* Extra hashtable lookup on Buffer's ToPtr & Read op"
